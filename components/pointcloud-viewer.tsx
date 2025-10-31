@@ -1,16 +1,20 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { Canvas } from "@react-three/fiber"
 import { OrbitControls, Grid } from "@react-three/drei"
 import { useRosTopic } from "@/lib/hooks/useRosTopic"
 import { MessageType, type PointCloudMessage } from "@/lib/services/unifiedWebSocket"
 import { useSettings } from "@/lib/hooks/useSettings"
 import * as THREE from "three"
-import { Loader2 } from "lucide-react"
+import { Loader2, RotateCcw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 interface PointCloudProps {
   topic: string
+  clearTrigger?: number
+  onPointCountChange?: (count: number) => void
+  onConnectionChange?: (connected: boolean, error: string | null) => void
 }
 
 interface PointCloudFrame {
@@ -18,25 +22,45 @@ interface PointCloudFrame {
   points: Float32Array
 }
 
-function PointCloud({ topic }: PointCloudProps) {
+function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChange }: PointCloudProps) {
   const pointsRef = useRef<THREE.Points>(null)
   const framesRef = useRef<PointCloudFrame[]>([])
   const animationFrameRef = useRef<number | undefined>(undefined)
   const { settings } = useSettings()
   const decayTimeMs = settings.pointcloud.decayTimeMs
 
+  // Memoize the message handler to prevent re-subscriptions
+  const handleMessage = useCallback((message: PointCloudMessage) => {
+    framesRef.current.push({
+      timestamp: message.timestamp,
+      points: message.points,
+    })
+  }, [])
+
   // Subscribe to point cloud topic and add frames to buffer
-  useRosTopic<PointCloudMessage>({
+  const { connected, error } = useRosTopic<PointCloudMessage>({
     topic,
     messageType: MessageType.POINT_CLOUD,
     enabled: true,
-    onMessage: (message) => {
-      framesRef.current.push({
-        timestamp: message.timestamp,
-        points: message.points,
-      })
-    },
+    onMessage: handleMessage,
   })
+
+  // Report connection status to parent
+  useEffect(() => {
+    onConnectionChange?.(connected, error)
+  }, [connected, error, onConnectionChange])
+
+  // Clear points when clearTrigger changes
+  useEffect(() => {
+    if (clearTrigger !== undefined && clearTrigger > 0) {
+      framesRef.current = []
+      // Clear the geometry
+      if (pointsRef.current?.geometry) {
+        pointsRef.current.geometry.dispose()
+        pointsRef.current.geometry = new THREE.BufferGeometry()
+      }
+    }
+  }, [clearTrigger])
 
   // Continuously update geometry based on decay time
   useEffect(() => {
@@ -79,11 +103,16 @@ function PointCloud({ topic }: PointCloudProps) {
 
           pointsRef.current.geometry.dispose()
           pointsRef.current.geometry = geometry
+
+          // Report point count
+          const pointCount = allPoints.length / 3
+          onPointCountChange?.(pointCount)
         }
       } else if (pointsRef.current.geometry) {
         // Clear geometry if no frames remain
         pointsRef.current.geometry.dispose()
         pointsRef.current.geometry = new THREE.BufferGeometry()
+        onPointCountChange?.(0)
       }
 
       animationFrameRef.current = requestAnimationFrame(updateGeometry)
@@ -112,17 +141,35 @@ function PointCloud({ topic }: PointCloudProps) {
 }
 
 export function PointCloudViewer({ topic }: PointCloudProps) {
-  const { connected, error } = useRosTopic<PointCloudMessage>({
-    topic,
-    messageType: MessageType.POINT_CLOUD,
-    enabled: true,
-  })
+  const [clearTrigger, setClearTrigger] = useState(0)
+  const [pointCount, setPointCount] = useState(0)
+  const [connected, setConnected] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleConnectionChange = useCallback((isConnected: boolean, err: string | null) => {
+    setConnected(isConnected)
+    setError(err)
+  }, [])
 
   return (
     <div className="relative w-full h-full min-h-[100px] bg-black/5 dark:bg-black/20 overflow-hidden">
-      {/* Topic Info */}
-      <div className="absolute top-4 right-4 z-10 px-3 py-2 bg-background/90 backdrop-blur-sm rounded-md border">
-        <div className="text-xs text-muted-foreground">{topic}</div>
+      {/* Topic Info with Clear Button */}
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setClearTrigger(prev => prev + 1)}
+          title="Clear points"
+          className="h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border text-muted-foreground"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+        <div className="px-3 py-2 bg-background/90 backdrop-blur-sm rounded-md border">
+          <div className="text-xs text-muted-foreground">{topic}</div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5">
+            {pointCount.toLocaleString()} points
+          </div>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -169,7 +216,12 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         />
 
         {/* Point Cloud */}
-        <PointCloud topic={topic} />
+        <PointCloud
+          topic={topic}
+          clearTrigger={clearTrigger}
+          onPointCountChange={setPointCount}
+          onConnectionChange={handleConnectionChange}
+        />
 
         {/* Controls */}
         <OrbitControls

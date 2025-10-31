@@ -32,6 +32,12 @@ export function useRosTopic<T>({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Memoize the callback to prevent re-subscriptions
+  const onMessageCallback = useCallback((msg: T) => {
+    setMessage(msg);
+    onMessage?.(msg);
+  }, [onMessage]);
+
   useEffect(() => {
     if (!enabled || !topic) {
       setLoading(false);
@@ -39,6 +45,7 @@ export function useRosTopic<T>({
     }
 
     let mounted = true;
+    let unsubscribe: (() => void) | null = null;
 
     const connectAndSubscribe = async () => {
       try {
@@ -50,20 +57,14 @@ export function useRosTopic<T>({
         setLoading(false);
         setError(null);
 
-        const unsubscribe = unifiedWebSocket.subscribeTopic<T>(
+        unsubscribe = unifiedWebSocket.subscribeTopic<T>(
           topic,
           messageType,
           (msg) => {
             if (!mounted) return;
-
-            setMessage(msg);
-            onMessage?.(msg);
+            onMessageCallback(msg);
           }
         );
-
-        return () => {
-          unsubscribe();
-        };
       } catch (err) {
         if (!mounted) return;
 
@@ -78,8 +79,11 @@ export function useRosTopic<T>({
 
     return () => {
       mounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
-  }, [enabled, topic, messageType, onMessage]);
+  }, [enabled, topic, messageType, onMessageCallback]);
 
   return {
     message,
