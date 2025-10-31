@@ -1,0 +1,72 @@
+{
+  "connection": {
+    "url": "ws://192.168.1.220:8765"
+  },
+  "pointcloud": {
+    "topic": "/ouster/points",
+    "decayTimeMs": 10000
+  },
+  "camera": {
+    "topic": "/usb_cam/image_raw"
+  },
+  "stats": {
+    "topic": "/supervisor/monitor/system"
+  },
+  "nodes": {
+    "topic": "/supervisor/monitor/nodes",
+    "startService": "/supervisor/actions/start_node",
+    "stopService": "/supervisor/actions/stop_node",
+    "exclude": ["/rosout", "/foxglove_nodelet_manager"],
+    "launch": [
+      {
+        "package": "fast_lio",
+        "launchFile": "mapping_ouster64.launch",
+        "args": [
+          {
+            "key": "rviz",
+            "value": "false"
+          }
+        ]
+      },
+      {
+        "package": "ouster_ros",
+        "launchFile": "driver.launch",
+        "args": [
+          {
+            "key": "sensor_hostname",
+            "value": "192.168.100.2"
+          },
+          {
+            "key": "viz",
+            "value": "false"
+          }
+        ]
+      },
+      {
+        "package": "fast_livo",
+        "launchFile": "mapping_ouster_ntu.launch",
+        "args": []
+      },
+      {
+        "package": "lidar_imu_init",
+        "launchFile": "ouster.launch",
+        "args": [
+          {
+            "key": "rviz",
+            "value": "false"
+          }
+        ]
+      }
+    ]
+  },
+  "recorder": {
+    "topic": "/supervisor/monitor/records",
+    "statusTopic": "/supervisor/monitor/recording",
+    "deleteService": "/supervisor/actions/delete_recording",
+    "startService": "/supervisor/actions/start_recording",
+    "stopService": "/supervisor/actions/stop_recording",
+    "topics": [
+      "/ouster/points"
+    ]
+  }
+}
