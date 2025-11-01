@@ -28,6 +28,8 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
   const animationFrameRef = useRef<number | undefined>(undefined)
   const { settings } = useSettings()
   const decayTimeMs = settings.pointcloud.decayTimeMs
+  const maxPoints = settings.pointcloud.maxPoints
+  const pointSize = settings.pointcloud.pointSize
 
   // Memoize the message handler to prevent re-subscriptions
   const handleMessage = useCallback((message: PointCloudMessage) => {
@@ -95,17 +97,37 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
             offset += frame.points.length
           })
 
+          // Downsample if exceeds max points budget
+          let finalPoints = allPoints
+          const totalPointCount = allPoints.length / 3
+
+          if (maxPoints > 0 && totalPointCount > maxPoints) {
+            // Calculate decimation step to achieve target point count
+            const step = Math.ceil(totalPointCount / maxPoints)
+            const decimatedSize = Math.floor(totalPointCount / step) * 3
+            const decimatedPoints = new Float32Array(decimatedSize)
+
+            let writeIdx = 0
+            for (let i = 0; i < allPoints.length; i += step * 3) {
+              decimatedPoints[writeIdx++] = allPoints[i]     // x
+              decimatedPoints[writeIdx++] = allPoints[i + 1] // y
+              decimatedPoints[writeIdx++] = allPoints[i + 2] // z
+            }
+
+            finalPoints = decimatedPoints
+          }
+
           const geometry = new THREE.BufferGeometry()
           geometry.setAttribute(
             "position",
-            new THREE.BufferAttribute(allPoints, 3)
+            new THREE.BufferAttribute(finalPoints, 3)
           )
 
           pointsRef.current.geometry.dispose()
           pointsRef.current.geometry = geometry
 
-          // Report point count
-          const pointCount = allPoints.length / 3
+          // Report actual point count being rendered
+          const pointCount = finalPoints.length / 3
           onPointCountChange?.(pointCount)
         }
       } else if (pointsRef.current.geometry) {
@@ -125,13 +147,13 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [decayTimeMs])
+  }, [decayTimeMs, maxPoints, pointSize, onPointCountChange])
 
   return (
     <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]}>
       <bufferGeometry />
       <pointsMaterial
-        size={0.01}
+        size={pointSize * 0.005}
         vertexColors={false}
         sizeAttenuation={true}
         color={0x3b82f6}
@@ -197,6 +219,13 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
       <Canvas
         camera={{ position: [5, 5, 5], fov: 60 }}
         className="w-full h-full"
+        dpr={[1, 1.5]} // Limit pixel ratio for performance (1x on low-end, 1.5x on high-end)
+        performance={{ min: 0.5 }} // Enable automatic performance scaling
+        gl={{
+          antialias: false, // Disable antialiasing for performance
+          powerPreference: "high-performance",
+          alpha: false,
+        }}
       >
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 5]} intensity={1} />

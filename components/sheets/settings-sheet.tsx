@@ -224,6 +224,27 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 placeholder="1000"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="pointcloud-maxpoints">Max Points (0 = unlimited)</Label>
+              <Input
+                id="pointcloud-maxpoints"
+                type="number"
+                value={config.pointcloud.maxPoints}
+                onChange={(e) => updatePointcloud("maxPoints", parseInt(e.target.value) || 0)}
+                placeholder="100000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pointcloud-size">Point Size</Label>
+              <Input
+                id="pointcloud-size"
+                type="number"
+                step="0.1"
+                value={config.pointcloud.pointSize}
+                onChange={(e) => updatePointcloud("pointSize", parseFloat(e.target.value) || 2)}
+                placeholder="2"
+              />
+            </div>
           </div>
 
           {/* Camera Block */}

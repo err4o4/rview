@@ -16,6 +16,8 @@ export interface ConnectionConfig {
 export interface PointCloudConfig {
   topic: string;
   decayTimeMs: number;
+  maxPoints: number; // Maximum number of points to render (for performance)
+  pointSize: number; // Size of each point in pixels
 }
 
 export interface CameraConfig {

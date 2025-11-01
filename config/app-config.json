@@ -3,8 +3,10 @@
     "url": "ws://192.168.1.220:8765"
   },
   "pointcloud": {
-    "topic": "/ouster/points",
-    "decayTimeMs": 10000
+    "topic": "/cloud_registered",
+    "decayTimeMs": 4000,
+    "maxPoints": 100000,
+    "pointSize": 2
   },
   "camera": {
     "topic": "/usb_cam/image_raw"
@@ -20,7 +22,7 @@
     "launch": [
       {
         "package": "fast_lio",
-        "launchFile": "mapping_ouster64.launch",
+        "launchFile": "mapping_ouster64_jetson.launch",
         "args": [
           {
             "key": "rviz",
@@ -38,21 +40,6 @@
           },
           {
             "key": "viz",
-            "value": "false"
-          }
-        ]
-      },
-      {
-        "package": "fast_livo",
-        "launchFile": "mapping_ouster_ntu.launch",
-        "args": []
-      },
-      {
-        "package": "lidar_imu_init",
-        "launchFile": "ouster.launch",
-        "args": [
-          {
-            "key": "rviz",
             "value": "false"
           }
         ]
