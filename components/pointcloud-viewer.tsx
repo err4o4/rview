@@ -26,6 +26,7 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
   const pointsRef = useRef<THREE.Points>(null)
   const framesRef = useRef<PointCloudFrame[]>([])
   const animationFrameRef = useRef<number | undefined>(undefined)
+  const bufferCapacityRef = useRef<number>(0) // Track buffer capacity to avoid recreating
   const { settings } = useSettings()
   const decayTimeMs = settings.pointcloud.decayTimeMs
   const maxPoints = settings.pointcloud.maxPoints
@@ -33,11 +34,20 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
 
   // Memoize the message handler to prevent re-subscriptions
   const handleMessage = useCallback((message: PointCloudMessage) => {
-    framesRef.current.push({
-      timestamp: message.timestamp,
-      points: message.points,
-    })
-  }, [])
+    // Performance: When decay is disabled (0), keep only latest message
+    // This prevents unbounded memory growth and reduces processing
+    if (decayTimeMs === 0) {
+      framesRef.current = [{
+        timestamp: message.timestamp,
+        points: message.points,
+      }]
+    } else {
+      framesRef.current.push({
+        timestamp: message.timestamp,
+        points: message.points,
+      })
+    }
+  }, [decayTimeMs])
 
   // Subscribe to point cloud topic and add frames to buffer
   const { connected, error } = useRosTopic<PointCloudMessage>({
@@ -56,13 +66,14 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
   useEffect(() => {
     if (clearTrigger !== undefined && clearTrigger > 0) {
       framesRef.current = []
+      bufferCapacityRef.current = 0 // Reset capacity on clear
       // Clear the geometry
       if (pointsRef.current?.geometry) {
-        pointsRef.current.geometry.dispose()
-        pointsRef.current.geometry = new THREE.BufferGeometry()
+        pointsRef.current.geometry.setDrawRange(0, 0)
+        onPointCountChange?.(0)
       }
     }
-  }, [clearTrigger])
+  }, [clearTrigger, onPointCountChange])
 
   // Continuously update geometry based on decay time
   useEffect(() => {
@@ -104,38 +115,53 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
           const totalPointCount = allPoints.length / 3
 
           if (maxPoints > 0 && totalPointCount > maxPoints) {
-            // Calculate decimation step to achieve target point count
-            const step = Math.ceil(totalPointCount / maxPoints)
-            const decimatedSize = Math.floor(totalPointCount / step) * 3
-            const decimatedPoints = new Float32Array(decimatedSize)
+            // Random sampling: better spatial distribution than sequential
+            const decimatedPoints = new Float32Array(maxPoints * 3)
+            const step = totalPointCount / maxPoints
 
-            let writeIdx = 0
-            for (let i = 0; i < allPoints.length; i += step * 3) {
-              decimatedPoints[writeIdx++] = allPoints[i]     // x
-              decimatedPoints[writeIdx++] = allPoints[i + 1] // y
-              decimatedPoints[writeIdx++] = allPoints[i + 2] // z
+            // Sample points at regular intervals with slight randomization
+            for (let i = 0; i < maxPoints; i++) {
+              const index = Math.floor(i * step + Math.random() * step)
+              const offset = Math.min(index, totalPointCount - 1) * 3
+              decimatedPoints[i * 3] = allPoints[offset]         // x
+              decimatedPoints[i * 3 + 1] = allPoints[offset + 1] // y
+              decimatedPoints[i * 3 + 2] = allPoints[offset + 2] // z
             }
 
             finalPoints = decimatedPoints
           }
 
-          const geometry = new THREE.BufferGeometry()
-          geometry.setAttribute(
-            "position",
-            new THREE.BufferAttribute(finalPoints, 3)
-          )
+          const pointCount = finalPoints.length / 3
 
-          pointsRef.current.geometry.dispose()
-          pointsRef.current.geometry = geometry
+          // Performance: Reuse buffer capacity to avoid recreating geometry
+          const currentGeometry = pointsRef.current.geometry
+          const positionAttr = currentGeometry.getAttribute('position') as THREE.BufferAttribute
+
+          if (!positionAttr || bufferCapacityRef.current < pointCount) {
+            // Need to create new buffer (first time or capacity exceeded)
+            const newCapacity = Math.ceil(pointCount * 1.2) // 20% headroom
+            const newBuffer = new Float32Array(newCapacity * 3)
+            newBuffer.set(finalPoints)
+
+            const newAttribute = new THREE.BufferAttribute(newBuffer, 3)
+            newAttribute.setUsage(decayTimeMs > 0 ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage)
+
+            currentGeometry.setAttribute('position', newAttribute)
+            bufferCapacityRef.current = newCapacity
+            currentGeometry.setDrawRange(0, pointCount)
+          } else {
+            // Reuse existing buffer
+            positionAttr.set(finalPoints, 0)
+            positionAttr.needsUpdate = true
+            currentGeometry.setDrawRange(0, pointCount)
+          }
 
           // Report actual point count being rendered
-          const pointCount = finalPoints.length / 3
           onPointCountChange?.(pointCount)
         }
       } else if (pointsRef.current.geometry) {
-        // Clear geometry if no frames remain
-        pointsRef.current.geometry.dispose()
-        pointsRef.current.geometry = new THREE.BufferGeometry()
+        // Clear geometry if no frames remain (but keep buffer capacity)
+        pointsRef.current.geometry.setDrawRange(0, 0)
         onPointCountChange?.(0)
       }
 
