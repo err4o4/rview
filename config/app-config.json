@@ -39,6 +39,10 @@
             "value": "192.168.100.2"
           },
           {
+            "key": "organized",
+            "value": "false"
+          },
+          {
             "key": "viz",
             "value": "false"
           }
