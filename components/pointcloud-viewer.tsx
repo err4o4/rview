@@ -72,13 +72,15 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
         return
       }
 
-      const currentTimeNs = Date.now() * 1_000_000 // Convert ms to ns
-      const decayTimeNs = decayTimeMs * 1_000_000 // Convert ms to ns
+      // Filter out old frames (skip if decayTimeMs is 0 for infinite retention)
+      if (decayTimeMs > 0) {
+        const currentTimeNs = Date.now() * 1_000_000 // Convert ms to ns
+        const decayTimeNs = decayTimeMs * 1_000_000 // Convert ms to ns
 
-      // Filter out old frames
-      framesRef.current = framesRef.current.filter(
-        (frame) => currentTimeNs - frame.timestamp <= decayTimeNs
-      )
+        framesRef.current = framesRef.current.filter(
+          (frame) => currentTimeNs - frame.timestamp <= decayTimeNs
+        )
+      }
 
       // Merge all active frames into a single geometry
       if (framesRef.current.length > 0) {

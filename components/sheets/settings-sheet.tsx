@@ -215,13 +215,16 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pointcloud-decay">Decay Time (ms)</Label>
+              <Label htmlFor="pointcloud-decay">Decay Time (ms, 0 = never decay)</Label>
               <Input
                 id="pointcloud-decay"
                 type="number"
                 value={config.pointcloud.decayTimeMs}
-                onChange={(e) => updatePointcloud("decayTimeMs", parseInt(e.target.value) || 1000)}
-                placeholder="1000"
+                onChange={(e) => {
+                  const value = parseInt(e.target.value)
+                  updatePointcloud("decayTimeMs", isNaN(value) ? 0 : value)
+                }}
+                placeholder="4000"
               />
             </div>
             <div className="space-y-2">
