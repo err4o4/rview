@@ -1,12 +1,12 @@
 {
   "connection": {
-    "url": "ws://192.168.1.220:8765"
+    "url": "ws://192.168.1.161:8765"
   },
   "pointcloud": {
     "topic": "/cloud_registered",
-    "decayTimeMs": 4000,
-    "maxPoints": 100000,
-    "pointSize": 2
+    "decayTimeMs": 10000000000,
+    "maxPoints": 0,
+    "pointSize": 1
   },
   "camera": {
     "topic": "/usb_cam/image_raw"
@@ -53,7 +53,8 @@
     "startService": "/supervisor/actions/start_recording",
     "stopService": "/supervisor/actions/stop_recording",
     "topics": [
-      "/ouster/points"
+      "/ouster/points",
+      "/ouster/imu"
     ]
   }
 }
