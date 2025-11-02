@@ -1,6 +1,6 @@
 /**
- * Web Worker for encoding captured frames one at a time.
- * Processes frames incrementally to avoid memory issues.
+ * Web Worker for encoding captured frames.
+ * Receives frames from main thread and encodes them to PNG/JPEG blobs.
  */
 
 interface EncodeFrameMessage {
@@ -42,24 +42,19 @@ self.addEventListener('message', async (e: MessageEvent<WorkerMessage>) => {
       // Draw the ImageBitmap to the OffscreenCanvas
       ctx.drawImage(imageBitmap, 0, 0)
 
-      // Convert to Blob (this is the expensive operation)
+      // Convert to Blob (expensive operation offloaded to worker thread)
       const blob = await offscreenCanvas.convertToBlob({
         type: mimeType,
         quality: quality
       })
 
-      // Send encoded blob AND progress in a SINGLE message to avoid race conditions
-      const current = frameIndex + 1
-      const progress = Math.round((current / totalFrames) * 100)
-
+      // Send encoded blob with progress info
       self.postMessage({
         type: 'encoded',
         frameIndex,
         blob,
-        // Include progress info in the same message
-        current,
-        total: totalFrames,
-        progress
+        current: frameIndex + 1,
+        total: totalFrames
       })
 
       // Clean up

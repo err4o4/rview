@@ -50,7 +50,7 @@ export function usePointCloudRecording({
   const [zipProgress, setZipProgress] = useState(0)
   const [processingPhase, setProcessingPhase] = useState<ProcessingPhase>(null)
 
-  // Recording refs - now storing ImageBitmaps instead of Blobs during capture
+  // Recording refs
   const recordingFramesRef = useRef<{ index: number; imageBitmap: ImageBitmap }[]>([])
   const encodedBlobsRef = useRef<(Blob | null)[]>([])
   const recordingAnimationFrameRef = useRef<number | null>(null)
@@ -74,7 +74,6 @@ export function usePointCloudRecording({
 
       if (message.type === 'ready') {
         workerReadyRef.current = true
-        console.log('Recording worker ready')
         return
       }
 
@@ -109,8 +108,6 @@ export function usePointCloudRecording({
       setRecordedFrameCount(0)
       setIsRecording(true)
 
-      console.log('Starting frame capture...')
-
       // Capture frames using requestAnimationFrame
       const captureFrame = async () => {
         if (!canvasRef.current) return
@@ -125,10 +122,10 @@ export function usePointCloudRecording({
           frameCountRef.current++
 
           try {
-            // Create ImageBitmap from canvas - VERY FAST (5-10ms), non-blocking
+            // Create ImageBitmap from canvas (fast, non-blocking)
             const imageBitmap = await createImageBitmap(canvasRef.current)
 
-            // Store the raw ImageBitmap (no encoding yet!)
+            // Store raw ImageBitmap for later encoding
             recordingFramesRef.current.push({
               index: frameIndex,
               imageBitmap
@@ -151,7 +148,7 @@ export function usePointCloudRecording({
       console.error('Failed to start recording:', err)
       setIsRecording(false)
     }
-  }, [canvasRef, rendererRef, captureIntervalMs, settings.format])
+  }, [canvasRef, rendererRef, captureIntervalMs])
 
   const stopRecording = useCallback(async () => {
     if (recordingAnimationFrameRef.current === null || !workerRef.current) return
@@ -163,8 +160,6 @@ export function usePointCloudRecording({
 
     const capturedFrames = recordingFramesRef.current
     const totalFrames = capturedFrames.length
-
-    console.log(`Captured ${totalFrames} raw frames. Starting batch encoding...`)
 
     if (totalFrames === 0) {
       console.warn('No frames captured')
@@ -179,11 +174,10 @@ export function usePointCloudRecording({
     // Prepare array to collect encoded blobs
     encodedBlobsRef.current = new Array(totalFrames).fill(null)
 
-    // Send frames to worker ONE AT A TIME to avoid memory exhaustion
     const mimeType = settings.format === 'jpeg' ? 'image/jpeg' : 'image/png'
     let encodedCount = 0
 
-    // Wait for all frames to be encoded - send them in BATCHES of 10
+    // Encode frames in batches of 10 to maintain worker throughput and smooth progress
     await new Promise<void>((resolve) => {
       let frameToSendIndex = 0
       const BATCH_SIZE = 10
@@ -213,7 +207,6 @@ export function usePointCloudRecording({
       const handleWorkerMessage = (e: MessageEvent) => {
         const message = e.data
 
-        // Handle encoded frames (now includes progress info)
         if (message.type === 'encoded') {
           encodedCount++
           framesInFlight--
@@ -223,9 +216,7 @@ export function usePointCloudRecording({
           const encodingProgress = Math.round((current / total) * 60)
           setZipProgress(encodingProgress)
 
-          console.log(`Encoded frame ${current}/${total} - Progress: ${encodingProgress}%`)
-
-          // Send next batch (keep worker busy)
+          // Send next batch to keep worker busy
           sendNextBatch()
 
           // Check if all frames are done
@@ -243,12 +234,9 @@ export function usePointCloudRecording({
       sendNextBatch()
     })
 
-    console.log('Encoding complete. Creating ZIP...')
-
     // Filter out null entries (in case any failed)
     const encodedFrames = encodedBlobsRef.current.filter((blob): blob is Blob => blob !== null)
     const successfulFrames = encodedFrames.length
-    console.log(`Successfully encoded ${successfulFrames} out of ${totalFrames} frames`)
 
     if (successfulFrames === 0) {
       console.warn('No frames successfully encoded')
@@ -285,20 +273,18 @@ export function usePointCloudRecording({
         await new Promise(resolve => setTimeout(resolve, 0))
       }
 
-      // PHASE 3: Compress ZIP (80-100% progress)
+      // PHASE 3: Generate ZIP (80-100% progress)
       setProcessingPhase('compressing')
-      console.log('Compressing ZIP file...')
 
       const zipBlob = await zip.generateAsync(
         {
           type: 'blob',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 1 }
+          compression: 'STORE' // No compression - files are already compressed
         },
         (metadata) => {
-          // Update progress: 80-100% for compression phase
-          const compressingProgress = 80 + Math.round(metadata.percent / 5)
-          setZipProgress(compressingProgress)
+          // Update progress: 80-100% for ZIP generation
+          const zipProgress = 80 + Math.round(metadata.percent / 5)
+          setZipProgress(zipProgress)
         }
       )
 
@@ -315,8 +301,7 @@ export function usePointCloudRecording({
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      console.log(`Download complete: ${filename}`)
-
+      // Log ffmpeg commands for video encoding
       if (settings.format === 'jpeg') {
         console.log(`\n=== VIDEO ENCODING OPTIONS (JPEG Input @ ${settings.fps} FPS) ===\n`)
         console.log('RECOMMENDED (high quality H.264):')

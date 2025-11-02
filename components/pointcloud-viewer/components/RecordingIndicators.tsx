@@ -33,7 +33,7 @@ export const RecordingIndicators = memo(function RecordingIndicators({
       case 'adding':
         return 'Adding frames to ZIP...'
       case 'compressing':
-        return 'Compressing ZIP file...'
+        return 'Generating ZIP file...'
       default:
         return 'Preparing...'
     }
