@@ -61,9 +61,9 @@ export interface RecorderConfig {
 }
 
 export interface RecordingConfig {
-  format: "jpeg" | "png"; // JPEG is 10-20x faster, PNG is lossless
   fps: number; // Frame rate (15, 24, 30, 60)
-  quality: number; // JPEG quality 0.0-1.0 (0.95 recommended), or PNG compression level
+  codec: "h264" | "vp9"; // H.264/AVC (smaller, faster) or VP9 (better quality)
+  bitrate: number; // Bitrate in Mbps (e.g., 10, 50, 100)
 }
 
 export interface AppConfig {

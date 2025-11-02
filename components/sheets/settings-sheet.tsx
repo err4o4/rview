@@ -578,30 +578,30 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
             <Collapsible open={recordingOpen} onOpenChange={setRecordingOpen}>
               <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
                 <ChevronDown className={`h-4 w-4 transition-transform ${recordingOpen ? "" : "-rotate-90"}`} />
-                Recording Settings
+                Video Recording Settings
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-3 mt-3">
                 <div className="space-y-2">
-                  <Label htmlFor="recording-format">Format</Label>
-                  <ButtonGroup>
+                  <Label htmlFor="recording-codec">Codec</Label>
+                  <ButtonGroup className="w-full">
                     <Button
                       type="button"
-                      variant={config.recording.format === "jpeg" ? "default" : "outline"}
-                      onClick={() => updateRecording("format", "jpeg")}
+                      variant={config.recording.codec === "h264" ? "default" : "outline"}
+                      onClick={() => updateRecording("codec", "h264")}
                       className="flex-1"
                     >
-                      JPEG (Fast)
+                      H.264
                     </Button>
                     <Button
                       type="button"
-                      variant={config.recording.format === "png" ? "default" : "outline"}
-                      onClick={() => updateRecording("format", "png")}
+                      variant={config.recording.codec === "vp9" ? "default" : "outline"}
+                      onClick={() => updateRecording("codec", "vp9")}
                       className="flex-1"
                     >
-                      PNG (Lossless)
+                      VP9
                     </Button>
                   </ButtonGroup>
-                  <p className="text-xs text-muted-foreground">JPEG is 10-20x faster, PNG is lossless</p>
+                  <p className="text-xs text-muted-foreground">H.264 is faster and smaller, VP9 has better quality/compression</p>
                 </div>
 
                 <div className="space-y-2">
@@ -622,21 +622,21 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="recording-quality">Quality</Label>
+                  <Label htmlFor="recording-bitrate">Bitrate (Mbps)</Label>
                   <Input
-                    id="recording-quality"
+                    id="recording-bitrate"
                     type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={config.recording.quality}
+                    min="1"
+                    max="500"
+                    step="10"
+                    value={config.recording.bitrate}
                     onChange={(e) => {
-                      const value = parseFloat(e.target.value)
-                      updateRecording("quality", isNaN(value) ? "" : value)
+                      const value = parseInt(e.target.value)
+                      updateRecording("bitrate", isNaN(value) ? "" : value)
                     }}
-                    placeholder="0.95"
+                    placeholder="100"
                   />
-                  <p className="text-xs text-muted-foreground">JPEG quality 0.0-1.0 (0.95 recommended for visually lossless)</p>
+                  <p className="text-xs text-muted-foreground">Higher bitrate = better quality, larger file. Recommended: 50-100 Mbps</p>
                 </div>
               </CollapsibleContent>
             </Collapsible>

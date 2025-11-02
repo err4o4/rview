@@ -76,8 +76,8 @@
     ]
   },
   "recording": {
-    "format": "jpeg",
     "fps": 30,
-    "quality": 0.95
+    "codec": "h264",
+    "bitrate": 100
   }
 }

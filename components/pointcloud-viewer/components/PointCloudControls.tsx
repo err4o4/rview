@@ -14,7 +14,7 @@ export interface PointCloudControlsProps {
   onClear: () => void
   isRecording: boolean
   onRecordingToggle: () => void
-  recordingFormat: 'jpeg' | 'png'
+  recordingCodec: 'h264' | 'vp9'
   recordingFps: number
 }
 
@@ -34,9 +34,10 @@ export function PointCloudControls({
   onClear,
   isRecording,
   onRecordingToggle,
-  recordingFormat,
+  recordingCodec,
   recordingFps
 }: PointCloudControlsProps) {
+  const codecLabel = recordingCodec === 'vp9' ? 'VP9' : 'H.264'
   return (
     <div className="absolute right-4 z-10 flex items-center gap-2" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.5rem)' }}>
       <Button
@@ -107,8 +108,8 @@ export function PointCloudControls({
         size="icon"
         onClick={onRecordingToggle}
         title={isRecording
-          ? "Stop recording (downloads as ZIP)"
-          : `Start recording ${recordingFormat === 'jpeg' ? 'JPEG' : 'PNG'} sequence (${recordingFps}fps${recordingFormat === 'jpeg' ? ', optimized for speed' : ', lossless'})`
+          ? "Stop recording (downloads MP4)"
+          : `Start recording ${codecLabel} video (${recordingFps}fps)`
         }
         className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
           isRecording
