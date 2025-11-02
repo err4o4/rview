@@ -353,7 +353,7 @@ function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCo
 }
 
 // Setup camera with fixed near/far planes for large point clouds
-function CameraSetup() {
+function CameraSetup({ fov }: { fov: number }) {
   const { camera } = useThree()
 
   useEffect(() => {
@@ -362,6 +362,14 @@ function CameraSetup() {
     camera.far = 50000   // 50km - handles multi-km point clouds
     camera.updateProjectionMatrix()
   }, [camera])
+
+  // Update FOV when settings change
+  useEffect(() => {
+    if ('fov' in camera) {
+      (camera as THREE.PerspectiveCamera).fov = fov
+      camera.updateProjectionMatrix()
+    }
+  }, [camera, fov])
 
   return null
 }
@@ -640,7 +648,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
       <Canvas
         camera={{
           position: [5, 5, 5],
-          fov: 90,
+          fov: settings.pointcloud.fov,
           near: 0.01,
           far: 5000 // Large far plane for 1km+ point clouds
         }}
@@ -689,7 +697,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         />
 
         {/* Camera Setup */}
-        <CameraSetup />
+        <CameraSetup fov={settings.pointcloud.fov} />
 
         {/* Controls with Camera Follow */}
         <CameraFollowController

@@ -20,6 +20,7 @@ export interface PointCloudConfig {
   pointSize: number; // Size of each point in pixels
   latestScanPointSize: number; // Size of latest scan points in pixels
   latestScanMode: "brighter" | "brighter-red"; // How to highlight latest scan
+  fov: number; // Camera field of view in degrees
 }
 
 export interface CameraConfig {

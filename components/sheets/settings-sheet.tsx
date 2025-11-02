@@ -281,6 +281,19 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 </Button>
               </ButtonGroup>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="pointcloud-fov">Camera Field of View (FOV)</Label>
+              <Input
+                id="pointcloud-fov"
+                type="number"
+                min="30"
+                max="150"
+                step="5"
+                value={config.pointcloud.fov}
+                onChange={(e) => updatePointcloud("fov", parseFloat(e.target.value) || 90)}
+                placeholder="90"
+              />
+            </div>
           </div>
 
           {/* Camera Block */}
