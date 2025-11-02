@@ -13,6 +13,9 @@ export type {
   PointCloudMessage,
   RecordingStatusMessage,
   SystemStatusMessage,
+  TFMessage,
+  TransformStamped,
+  Transform,
 } from "./topicManager";
 
 export { MessageType } from "./topicManager";

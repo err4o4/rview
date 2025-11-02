@@ -4,8 +4,8 @@
   },
   "pointcloud": {
     "topic": "/cloud_registered",
-    "decayTimeMs": 10000000000,
-    "maxPoints": 0,
+    "decayTimeMs": 1000000,
+    "maxPoints": 100000,
     "pointSize": 1
   },
   "camera": {
@@ -13,6 +13,16 @@
   },
   "stats": {
     "topic": "/supervisor/monitor/system"
+  },
+  "tf": {
+    "topic": "/tf",
+    "enabled": true,
+    "arrowLength": 0.2,
+    "arrowWidth": 0.02,
+    "follow": {
+      "frameId": "body",
+      "smoothing": 0.3
+    }
   },
   "nodes": {
     "topic": "/supervisor/monitor/nodes",

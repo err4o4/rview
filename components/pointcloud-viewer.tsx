@@ -1,14 +1,16 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { Canvas } from "@react-three/fiber"
+import { Canvas, useThree, useFrame } from "@react-three/fiber"
 import { OrbitControls, Grid } from "@react-three/drei"
 import { useRosTopic } from "@/lib/hooks/useRosTopic"
 import { MessageType, type PointCloudMessage } from "@/lib/services/unifiedWebSocket"
 import { useSettings } from "@/lib/hooks/useSettings"
+import { TFViewer } from "@/components/tf-viewer"
 import * as THREE from "three"
-import { Loader2, RotateCcw } from "lucide-react"
+import { Loader2, RotateCcw, Navigation } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 
 interface PointCloudProps {
   topic: string
@@ -178,15 +180,113 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
   }, [decayTimeMs, maxPoints, pointSize, onPointCountChange])
 
   return (
-    <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]}>
+    <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
       <bufferGeometry />
       <pointsMaterial
         size={pointSize * 0.005}
         vertexColors={false}
         sizeAttenuation={true}
         color={0x3b82f6}
+        depthTest={true}
+        depthWrite={true}
       />
     </points>
+  )
+}
+
+// Setup camera with fixed near/far planes for large point clouds
+function CameraSetup() {
+  const { camera } = useThree()
+
+  useEffect(() => {
+    // Set fixed near/far planes for km-scale point clouds
+    camera.near = 0.001  // 1mm - allows extreme close zoom
+    camera.far = 50000   // 50km - handles multi-km point clouds
+    camera.updateProjectionMatrix()
+  }, [camera])
+
+  return null
+}
+
+// Camera follow controller component
+function CameraFollowController({
+  enabled,
+  followPosition,
+  followRotation,
+  smoothing,
+}: {
+  enabled: boolean
+  followPosition: THREE.Vector3 | null
+  followRotation: THREE.Quaternion | null
+  smoothing: number
+}) {
+  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+
+  // Store the initial relative offset when follow mode is first enabled
+  const initialOffsetRef = useRef<THREE.Vector3 | null>(null)
+  const lastTFPositionRef = useRef<THREE.Vector3 | null>(null)
+  const smoothedTFPositionRef = useRef<THREE.Vector3 | null>(null)
+  const lastEnabledRef = useRef<boolean>(false)
+
+  useFrame(() => {
+    if (!controlsRef.current) return
+
+    // Only process TF follow if enabled and position available
+    if (enabled && followPosition) {
+      // Apply rotation adjustment for coordinate system (same as point cloud)
+      const adjustedTFPosition = followPosition.clone()
+      adjustedTFPosition.applyAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+      adjustedTFPosition.applyAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
+
+      // When follow is first enabled, capture the initial offset
+      if (!lastEnabledRef.current) {
+        // Calculate offset from current orbit target to TF position
+        initialOffsetRef.current = controlsRef.current.target.clone().sub(adjustedTFPosition)
+        lastTFPositionRef.current = adjustedTFPosition.clone()
+        smoothedTFPositionRef.current = adjustedTFPosition.clone()
+        lastEnabledRef.current = true
+      }
+
+      // If following is enabled, update the orbit target to follow TF
+      if (initialOffsetRef.current && lastTFPositionRef.current && smoothedTFPositionRef.current) {
+        // Smoothly interpolate towards the new TF position
+        // Higher smoothing value = smoother but slower follow (0 = instant, 1 = very slow)
+        const alpha = 1 - smoothing
+        smoothedTFPositionRef.current.lerp(adjustedTFPosition, alpha)
+
+        // Calculate how much the smoothed TF has moved
+        const tfDelta = smoothedTFPositionRef.current.clone().sub(lastTFPositionRef.current)
+
+        // Move the orbit controls target by the smoothed delta
+        controlsRef.current.target.add(tfDelta)
+
+        // Update last position to the smoothed position
+        lastTFPositionRef.current.copy(smoothedTFPositionRef.current)
+
+        // Update controls
+        controlsRef.current.update()
+      }
+    } else if (lastEnabledRef.current) {
+      // When follow is disabled, clear the offset
+      initialOffsetRef.current = null
+      lastTFPositionRef.current = null
+      smoothedTFPositionRef.current = null
+      lastEnabledRef.current = false
+    }
+  })
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      makeDefault
+      minDistance={0}
+      maxDistance={2000}
+      enableDamping
+      dampingFactor={0.05}
+      enablePan={true}
+      enableRotate={true}
+      enableZoom={true}
+    />
   )
 }
 
@@ -195,16 +295,38 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
   const [pointCount, setPointCount] = useState(0)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cameraFollowEnabled, setCameraFollowEnabled] = useState(false)
+  const [followPosition, setFollowPosition] = useState<THREE.Vector3 | null>(null)
+  const [followRotation, setFollowRotation] = useState<THREE.Quaternion | null>(null)
+  const { settings } = useSettings()
 
   const handleConnectionChange = useCallback((isConnected: boolean, err: string | null) => {
     setConnected(isConnected)
     setError(err)
   }, [])
 
+  const handleFollowTransformUpdate = useCallback((position: THREE.Vector3, rotation: THREE.Quaternion) => {
+    setFollowPosition(position)
+    setFollowRotation(rotation)
+  }, [])
+
   return (
     <div className="relative w-full h-full min-h-[100px] bg-black/5 dark:bg-black/20 overflow-hidden">
       {/* Topic Info with Clear Button */}
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setCameraFollowEnabled(prev => !prev)}
+          title={cameraFollowEnabled ? "Disable camera follow" : "Enable camera follow"}
+          className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+            cameraFollowEnabled
+              ? "text-blue-500 border-blue-500"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Navigation className="h-4 w-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -245,10 +367,15 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
 
       {/* 3D Canvas */}
       <Canvas
-        camera={{ position: [5, 5, 5], fov: 60 }}
+        camera={{
+          position: [5, 5, 5],
+          fov: 60,
+          near: 0.01,
+          far: 5000 // Large far plane for 1km+ point clouds
+        }}
         className="w-full h-full"
         dpr={[1, 1.5]} // Limit pixel ratio for performance (1x on low-end, 1.5x on high-end)
-        performance={{ min: 0.5 }} // Enable automatic performance scaling
+        performance={{ min:1 }} // Enable automatic performance scaling
         gl={{
           antialias: false, // Disable antialiasing for performance
           powerPreference: "high-performance",
@@ -280,13 +407,23 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
           onConnectionChange={handleConnectionChange}
         />
 
-        {/* Controls */}
-        <OrbitControls
-          makeDefault
-          minDistance={1}
-          maxDistance={100}
-          enableDamping
-          dampingFactor={0.05}
+        {/* TF Frames */}
+        <TFViewer
+          topic={settings.tf.topic}
+          enabled={settings.tf.enabled}
+          followFrameId={cameraFollowEnabled ? settings.tf.follow.frameId : undefined}
+          onFollowTransformUpdate={handleFollowTransformUpdate}
+        />
+
+        {/* Camera Setup */}
+        <CameraSetup />
+
+        {/* Controls with Camera Follow */}
+        <CameraFollowController
+          enabled={cameraFollowEnabled}
+          followPosition={followPosition}
+          followRotation={followRotation}
+          smoothing={settings.tf.follow.smoothing}
         />
       </Canvas>
 

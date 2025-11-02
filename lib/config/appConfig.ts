@@ -28,6 +28,17 @@ export interface StatsConfig {
   topic: string;
 }
 
+export interface TFConfig {
+  topic: string;
+  enabled: boolean;
+  arrowLength: number; // Length of coordinate frame arrows
+  arrowWidth: number; // Width of coordinate frame arrows
+  follow: {
+    frameId: string; // Which TF frame to follow (e.g., "base_link")
+    smoothing: number; // Camera follow smoothing factor (0-1, higher = smoother but slower)
+  };
+}
+
 export interface NodesConfig {
   topic: string;
   startService: string;
@@ -50,6 +61,7 @@ export interface AppConfig {
   pointcloud: PointCloudConfig;
   camera: CameraConfig;
   stats: StatsConfig;
+  tf: TFConfig;
   nodes: NodesConfig;
   recorder: RecorderConfig;
 }

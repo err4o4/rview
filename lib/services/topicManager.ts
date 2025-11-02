@@ -13,7 +13,8 @@ export enum MessageType {
   RECORDING_STATUS = 'RecordingStatus',
   SYSTEM_STATUS = 'SystemStatus',
   COMPRESSED_IMAGE = 'CompressedImage',
-  IMAGE = 'Image'
+  IMAGE = 'Image',
+  TF = 'TFMessage'
 }
 
 export interface RosNode {
@@ -62,6 +63,25 @@ export interface SystemStatusMessage {
   ram_used: number;
   ram_available: number;
   ram_percent: number;
+}
+
+export interface Transform {
+  translation: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number; w: number };
+}
+
+export interface TransformStamped {
+  header: {
+    seq: number;
+    stamp: { sec: number; nsec: number };
+    frame_id: string;
+  };
+  child_frame_id: string;
+  transform: Transform;
+}
+
+export interface TFMessage {
+  transforms: TransformStamped[];
 }
 
 type ChannelInfo = {
@@ -157,6 +177,38 @@ int64 ram_used
 int64 ram_available
 float32 ram_percent`;
 
+const TF_MESSAGE_DEFINITION = `geometry_msgs/TransformStamped[] transforms
+
+===
+MSG: geometry_msgs/TransformStamped
+std_msgs/Header header
+string child_frame_id
+geometry_msgs/Transform transform
+
+===
+MSG: std_msgs/Header
+uint32 seq
+time stamp
+string frame_id
+
+===
+MSG: geometry_msgs/Transform
+geometry_msgs/Vector3 translation
+geometry_msgs/Quaternion rotation
+
+===
+MSG: geometry_msgs/Vector3
+float64 x
+float64 y
+float64 z
+
+===
+MSG: geometry_msgs/Quaternion
+float64 x
+float64 y
+float64 z
+float64 w`;
+
 // ============================= Topic Manager =============================
 
 export class TopicManager {
@@ -175,6 +227,7 @@ export class TopicManager {
   private imageReader: MessageReader;
   private compressedImageReader: MessageReader;
   private systemStatusReader: MessageReader;
+  private tfMessageReader: MessageReader;
 
   constructor(connection: WebSocketConnection) {
     this.connection = connection;
@@ -187,6 +240,7 @@ export class TopicManager {
     const imageMsgDef = parse(IMAGE_DEFINITION);
     const compressedImageMsgDef = parse(COMPRESSED_IMAGE_DEFINITION);
     const systemStatusMsgDef = parse(SYSTEM_STATUS_DEFINITION);
+    const tfMessageMsgDef = parse(TF_MESSAGE_DEFINITION);
 
     this.nodeListReader = new MessageReader(nodeListMsgDef);
     this.fileRecordListReader = new MessageReader(fileRecordListMsgDef);
@@ -195,6 +249,7 @@ export class TopicManager {
     this.imageReader = new MessageReader(imageMsgDef);
     this.compressedImageReader = new MessageReader(compressedImageMsgDef);
     this.systemStatusReader = new MessageReader(systemStatusMsgDef);
+    this.tfMessageReader = new MessageReader(tfMessageMsgDef);
   }
 
   handleAdvertise(channels: any[]): void {
@@ -276,6 +331,9 @@ export class TopicManager {
         case MessageType.COMPRESSED_IMAGE:
         case MessageType.IMAGE:
           message = this.decodeCompressedImage(payload);
+          break;
+        case MessageType.TF:
+          message = this.decodeTFMessage(payload);
           break;
         default:
           console.warn('Unknown message type:', messageType, 'for topic:', topic);
@@ -435,6 +493,35 @@ export class TopicManager {
     }
 
     return null;
+  }
+
+  private decodeTFMessage(payload: ArrayBuffer): TFMessage {
+    const uint8Array = new Uint8Array(payload);
+    const message = this.tfMessageReader.readMessage(uint8Array) as any;
+
+    return {
+      transforms: message.transforms.map((tf: any) => ({
+        header: {
+          seq: tf.header.seq,
+          stamp: tf.header.stamp,
+          frame_id: tf.header.frame_id,
+        },
+        child_frame_id: tf.child_frame_id,
+        transform: {
+          translation: {
+            x: tf.transform.translation.x,
+            y: tf.transform.translation.y,
+            z: tf.transform.translation.z,
+          },
+          rotation: {
+            x: tf.transform.rotation.x,
+            y: tf.transform.rotation.y,
+            z: tf.transform.rotation.z,
+            w: tf.transform.rotation.w,
+          },
+        },
+      })),
+    };
   }
 
   subscribeTopic<T>(topic: string, messageType: MessageType, callback: TopicCallback<T>): () => void {
