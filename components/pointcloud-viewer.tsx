@@ -11,6 +11,7 @@ import * as THREE from "three"
 import { Loader2, RotateCcw, Navigation, Lock, Eye, EyeOff, Palette, Video, Circle as RecordCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
+import Stats from "stats.js"
 
 // Custom shader for distance-based point scaling
 const distanceScaledVertexShader = `
@@ -681,15 +682,47 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
   const [followRotation, setFollowRotation] = useState<THREE.Quaternion | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [recordedFrameCount, setRecordedFrameCount] = useState(0)
+  const [isPreparingZip, setIsPreparingZip] = useState(false)
+  const [zipProgress, setZipProgress] = useState(0)
   const { settings } = useSettings()
 
-  // Recording refs - PNG sequence capture
-  const recordingFramesRef = useRef<string[]>([]) // Base64 PNG data URLs
-  const recordingIntervalRef = useRef<number | null>(null)
+  // FPS Counter - outside Canvas
+  const statsRef = useRef<Stats | null>(null)
+  useEffect(() => {
+    const stats = new Stats()
+    stats.showPanel(0) // 0: fps, 1: ms, 2: mb
+    stats.dom.style.position = 'absolute'
+    stats.dom.style.left = '16px'
+    stats.dom.style.top = 'calc(3rem + env(safe-area-inset-top) + 0.5rem + 76px)'
+    stats.dom.style.zIndex = '10'
+    document.body.appendChild(stats.dom)
+    statsRef.current = stats
+
+    const animate = () => {
+      stats.update()
+      requestAnimationFrame(animate)
+    }
+    animate()
+
+    return () => {
+      if (stats.dom.parentNode) {
+        document.body.removeChild(stats.dom)
+      }
+    }
+  }, [])
+
+  // Recording refs - optimized capture (JPEG for 10-20x faster encoding)
+  const recordingFramesRef = useRef<(Blob | null)[]>([]) // Frame blobs with null placeholders to maintain order
+  const recordingAnimationFrameRef = useRef<number | null>(null)
   const frameCountRef = useRef<number>(0)
+  const capturedFrameCountRef = useRef<number>(0) // Track completed captures
+  const lastCaptureTimeRef = useRef<number>(0)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
-  const originalPixelRatioRef = useRef<number>(1)
+
+  // Use recording settings for capture configuration
+  const captureIntervalMs = 1000 / settings.recording.fps
+  const captureQuality = settings.recording.quality
 
   const handleConnectionChange = useCallback((isConnected: boolean, err: string | null) => {
     setConnected(isConnected)
@@ -701,90 +734,137 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
     setFollowRotation(rotation)
   }, [])
 
-  // Start recording PNG sequence
+  // Start recording PNG sequence (optimized: lower FPS, lower resolution)
   const startRecording = useCallback(() => {
     if (!canvasRef.current || !rendererRef.current) return
 
     try {
-      // Boost pixel ratio for higher quality
-      originalPixelRatioRef.current = rendererRef.current.getPixelRatio()
-      rendererRef.current.setPixelRatio(Math.min(window.devicePixelRatio, 3)) // Up to 2x for quality
-
       // Reset frame counter and storage
       recordingFramesRef.current = []
       frameCountRef.current = 0
+      capturedFrameCountRef.current = 0
+      lastCaptureTimeRef.current = performance.now()
       setRecordedFrameCount(0)
       setIsRecording(true)
 
-      // Capture frames at 30 FPS (33.33ms interval)
+      // Capture frames using requestAnimationFrame at 30 FPS
       const captureFrame = () => {
         if (!canvasRef.current) return
 
-        try {
-          // Capture canvas as PNG (lossless)
-          const dataURL = canvasRef.current.toDataURL('image/png')
-          recordingFramesRef.current.push(dataURL)
+        const now = performance.now()
+        const elapsed = now - lastCaptureTimeRef.current
+
+        // Only capture every ~33ms (30 FPS)
+        if (elapsed >= captureIntervalMs) {
+          lastCaptureTimeRef.current = now
+          const frameIndex = frameCountRef.current
           frameCountRef.current++
-          setRecordedFrameCount(frameCountRef.current)
-        } catch (err) {
-          console.error('Failed to capture frame:', err)
+
+          // Pre-allocate the slot to maintain order
+          recordingFramesRef.current[frameIndex] = null
+
+          // Use toBlob() - JPEG is 10-20x faster than PNG
+          const mimeType = settings.recording.format === 'jpeg' ? 'image/jpeg' : 'image/png'
+          const quality = captureQuality // Quality from settings (0.0-1.0)
+
+          canvasRef.current.toBlob(
+            (blob) => {
+              if (blob) {
+                // Store at the correct index to maintain frame order
+                recordingFramesRef.current[frameIndex] = blob
+                capturedFrameCountRef.current++
+                setRecordedFrameCount(capturedFrameCountRef.current)
+              }
+            },
+            mimeType,
+            quality
+          )
         }
+
+        // Continue capturing
+        recordingAnimationFrameRef.current = requestAnimationFrame(captureFrame)
       }
 
-      // Start capturing at 30 FPS
-      const interval = window.setInterval(captureFrame, 1000 / 30)
-      recordingIntervalRef.current = interval
+      // Start the capture loop
+      recordingAnimationFrameRef.current = requestAnimationFrame(captureFrame)
 
     } catch (err) {
       console.error('Failed to start recording:', err)
       setIsRecording(false)
     }
-  }, [])
+  }, [captureIntervalMs, captureQuality, settings.recording.fps, settings.recording.format])
 
   // Stop recording and download PNG sequence as zip
   const stopRecording = useCallback(async () => {
-    if (recordingIntervalRef.current === null) return
+    if (recordingAnimationFrameRef.current === null) return
 
     // Stop capturing frames
-    window.clearInterval(recordingIntervalRef.current)
-    recordingIntervalRef.current = null
+    cancelAnimationFrame(recordingAnimationFrameRef.current)
+    recordingAnimationFrameRef.current = null
     setIsRecording(false)
 
-    // Restore original pixel ratio
-    if (rendererRef.current) {
-      rendererRef.current.setPixelRatio(originalPixelRatioRef.current)
-    }
+    // Wait a bit for any pending toBlob() calls to finish
+    await new Promise(resolve => setTimeout(resolve, 500))
 
-    const totalFrames = recordingFramesRef.current.length
-    console.log(`Recording stopped. Total frames: ${totalFrames}`)
+    // Filter out null entries to get only successfully captured frames
+    const capturedFrames = recordingFramesRef.current.filter((blob): blob is Blob => blob !== null)
+    const totalFrames = capturedFrames.length
+    console.log(`Recording stopped. Total frames captured: ${totalFrames} out of ${frameCountRef.current} requested`)
 
     if (totalFrames === 0) {
       console.warn('No frames captured')
       return
     }
 
-    // Download frames as individual PNGs (browser will prompt for each)
-    // In a real implementation, you'd want to use JSZip library to create a zip file
-    console.log('Downloading PNG sequence...')
+    // Show preparing zip message
+    setIsPreparingZip(true)
+    setZipProgress(0)
 
-    // For now, download all frames individually
-    // Note: Most browsers will block multiple downloads, so we'll create a zip
+    // Process ZIP generation in chunks to avoid blocking the main thread
     try {
       // Import JSZip dynamically
       const JSZip = (await import('jszip')).default
       const zip = new JSZip()
 
-      // Add each frame to the zip
-      recordingFramesRef.current.forEach((dataURL, index) => {
-        // Convert data URL to blob
-        const base64Data = dataURL.split(',')[1]
-        const frameNumber = String(index).padStart(5, '0')
-        zip.file(`frame_${frameNumber}.png`, base64Data, { base64: true })
-      })
+      console.log('Preparing ZIP file...')
 
-      // Generate zip file
-      console.log('Generating zip file...')
-      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const fileExt = settings.recording.format === 'jpeg' ? 'jpg' : 'png'
+
+      // Add frames in chunks with periodic yields to event loop
+      const chunkSize = 10
+      for (let i = 0; i < capturedFrames.length; i += chunkSize) {
+        const chunk = capturedFrames.slice(i, i + chunkSize)
+
+        // Add chunk of frames (Blobs are added directly, much faster than base64)
+        chunk.forEach((blob, chunkIndex) => {
+          const frameNumber = String(i + chunkIndex).padStart(5, '0')
+          zip.file(`frame_${frameNumber}.${fileExt}`, blob, { binary: true })
+        })
+
+        // Update progress
+        const progress = Math.round(((i + chunkSize) / capturedFrames.length) * 50)
+        setZipProgress(Math.min(progress, 50))
+
+        // Yield to event loop to keep UI responsive
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+
+      // Generate zip file with progress callback
+      console.log('Compressing ZIP file...')
+      const zipBlob = await zip.generateAsync(
+        {
+          type: 'blob',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 1 }
+        },
+        (metadata) => {
+          // Update progress: 50-100% for compression phase
+          const progress = 50 + Math.round(metadata.percent / 2)
+          setZipProgress(progress)
+        }
+      )
+
+      setZipProgress(100)
 
       // Download the zip
       const url = URL.createObjectURL(zipBlob)
@@ -798,33 +878,52 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
       URL.revokeObjectURL(url)
 
       console.log(`Download complete: ${filename}`)
-      console.log('\n=== LOSSLESS VIDEO ENCODING OPTIONS ===\n')
-      console.log("# Option 1: Lossless H.264 with yuv444p (most compatible lossless)")
-      console.log('ffmpeg -framerate 30 -pattern_type glob -i "frame_*.png" -c:v libx264 -qp 0 -pix_fmt yuv444p -preset veryslow output.mp4')
 
-      console.log('# Option 2: ProRes 4444 (near-lossless, best compatibility with video editors)')
-      console.log('ffmpeg -framerate 30 -pattern_type glob -i "frame_*.png" -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le output.mov')
+      if (settings.recording.format === 'jpeg') {
+        console.log(`\n=== VIDEO ENCODING OPTIONS (JPEG Input @ ${settings.recording.fps} FPS) ===\n`)
+        console.log('RECOMMENDED (high quality H.264):')
+        console.log(`ffmpeg -framerate ${settings.recording.fps} -pattern_type glob -i "frame_*.jpg" -c:v libx264 -crf 18 -pix_fmt yuv420p output.mp4`)
+        console.log('  • JPEG input is already lossy, so lossless encoding not needed')
+        console.log('  • CRF 18 = visually lossless for H.264\n')
+        console.log('Option 2 - ProRes (best for video editors):')
+        console.log(`ffmpeg -framerate ${settings.recording.fps} -pattern_type glob -i "frame_*.jpg" -c:v prores_ks -profile:v 3 output.mov\n`)
+        console.log('Option 3 - High compatibility (smaller file):')
+        console.log(`ffmpeg -framerate ${settings.recording.fps} -pattern_type glob -i "frame_*.jpg" -c:v libx264 -crf 23 -pix_fmt yuv420p output.mp4`)
+      } else {
+        console.log(`\n=== LOSSLESS VIDEO ENCODING OPTIONS (PNG Input @ ${settings.recording.fps} FPS) ===\n`)
+        console.log('RECOMMENDED (lossless H.264):')
+        console.log(`ffmpeg -framerate ${settings.recording.fps} -pattern_type glob -i "frame_*.png" -c:v libx264 -qp 0 -pix_fmt yuv444p output.mp4`)
+        console.log('  • -qp 0 = truly lossless\n')
+        console.log('Option 2 - ProRes 4444 (best for video editors):')
+        console.log(`ffmpeg -framerate ${settings.recording.fps} -pattern_type glob -i "frame_*.png" -c:v prores_ks -profile:v 4444 output.mov`)
+      }
 
     } catch (err) {
       console.error('Failed to create zip:', err)
       console.log('Falling back to individual frame downloads (first 10 frames only)...')
 
-      // Fallback: download first 10 frames individually
-      recordingFramesRef.current.slice(0, 10).forEach((dataURL, index) => {
+      const fileExt = settings.recording.format === 'jpeg' ? 'jpg' : 'png'
+
+      // Fallback: download first 10 frames individually (using captured frames, not raw array)
+      capturedFrames.slice(0, 10).forEach((blob, index) => {
+        const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
-        a.href = dataURL
+        a.href = url
         const frameNumber = String(index).padStart(5, '0')
-        a.download = `frame_${frameNumber}.png`
+        a.download = `frame_${frameNumber}.${fileExt}`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
+        URL.revokeObjectURL(url)
       })
+    } finally {
+      // Clean up
+      setIsPreparingZip(false)
+      setZipProgress(0)
+      recordingFramesRef.current = []
+      frameCountRef.current = 0
     }
-
-    // Clean up
-    recordingFramesRef.current = []
-    frameCountRef.current = 0
-  }, [])
+  }, [settings.recording.format, settings.recording.fps])
 
   // Toggle recording
   const toggleRecording = useCallback(() => {
@@ -916,7 +1015,10 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
           variant="ghost"
           size="icon"
           onClick={toggleRecording}
-          title={isRecording ? "Stop recording PNG sequence (downloads as ZIP)" : "Start recording PNG sequence (30fps, lossless)"}
+          title={isRecording
+            ? "Stop recording (downloads as ZIP)"
+            : `Start recording ${settings.recording.format === 'jpeg' ? 'JPEG' : 'PNG'} sequence (${settings.recording.fps}fps${settings.recording.format === 'jpeg' ? ', optimized for speed' : ', lossless'})`
+          }
           className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
             isRecording
               ? "text-red-500 border-red-500 animate-pulse"
@@ -932,7 +1034,28 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-500/90 backdrop-blur-sm rounded-full" style={{ marginTop: 'env(safe-area-inset-top)' }}>
           <RecordCircle className="h-3 w-3 fill-white animate-pulse" />
           <span className="text-xs font-medium text-white">
-            Recording PNG sequence: {recordedFrameCount} frames ({(recordedFrameCount / 30).toFixed(1)}s @ 30fps)
+            Recording {settings.recording.format === 'jpeg' ? 'JPEG' : 'PNG'} sequence: {recordedFrameCount} frames ({(recordedFrameCount / settings.recording.fps).toFixed(1)}s @ {settings.recording.fps}fps)
+          </span>
+        </div>
+      )}
+
+      {/* ZIP Preparation Indicator */}
+      {isPreparingZip && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 px-4 py-3 bg-blue-500/90 backdrop-blur-sm rounded-lg" style={{ marginTop: 'env(safe-area-inset-top)' }}>
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 text-white animate-spin" />
+            <span className="text-sm font-medium text-white">
+              Preparing ZIP file...
+            </span>
+          </div>
+          <div className="w-full bg-white/20 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-white h-full transition-all duration-300 ease-out"
+              style={{ width: `${zipProgress}%` }}
+            />
+          </div>
+          <span className="text-xs text-white/90">
+            {zipProgress}% complete
           </span>
         </div>
       )}

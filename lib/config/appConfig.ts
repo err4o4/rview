@@ -60,6 +60,12 @@ export interface RecorderConfig {
   topics: string[];
 }
 
+export interface RecordingConfig {
+  format: "jpeg" | "png"; // JPEG is 10-20x faster, PNG is lossless
+  fps: number; // Frame rate (15, 24, 30, 60)
+  quality: number; // JPEG quality 0.0-1.0 (0.95 recommended), or PNG compression level
+}
+
 export interface AppConfig {
   connection: ConnectionConfig;
   pointcloud: PointCloudConfig;
@@ -68,6 +74,7 @@ export interface AppConfig {
   tf: TFConfig;
   nodes: NodesConfig;
   recorder: RecorderConfig;
+  recording: RecordingConfig;
 }
 
 // Import the config file - used as default config in useSettings hook

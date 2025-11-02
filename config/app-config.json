@@ -74,5 +74,10 @@
       "/ouster/points",
       "/ouster/imu"
     ]
+  },
+  "recording": {
+    "format": "jpeg",
+    "fps": 30,
+    "quality": 0.95
   }
 }

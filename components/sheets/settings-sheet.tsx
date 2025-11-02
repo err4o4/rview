@@ -35,6 +35,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   const [config, setConfig] = useState<AppConfig>(settings)
   const [nodesOpen, setNodesOpen] = useState(false)
   const [recorderOpen, setRecorderOpen] = useState(false)
+  const [recordingOpen, setRecordingOpen] = useState(false)
   const [launchOpenStates, setLaunchOpenStates] = useState<boolean[]>([])
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     setConfig({ ...config, connection: { ...config.connection, [field]: value } })
   }
 
-  const updatePointcloud = (field: keyof AppConfig["pointcloud"], value: string | number) => {
+  const updatePointcloud = (field: keyof AppConfig["pointcloud"], value: string | number | boolean) => {
     setConfig({ ...config, pointcloud: { ...config.pointcloud, [field]: value } })
   }
 
@@ -86,6 +87,10 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
 
   const updateRecorder = (field: keyof AppConfig["recorder"], value: any) => {
     setConfig({ ...config, recorder: { ...config.recorder, [field]: value } })
+  }
+
+  const updateRecording = (field: keyof AppConfig["recording"], value: any) => {
+    setConfig({ ...config, recording: { ...config.recording, [field]: value } })
   }
 
   // Exclude management
@@ -566,9 +571,76 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                       placeholder="/supervisor/actions/delete_recording"
                     />
                   </div>
-                  
+
               </CollapsibleContent>
             </Collapsible>
+
+            <Collapsible open={recordingOpen} onOpenChange={setRecordingOpen}>
+              <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                <ChevronDown className={`h-4 w-4 transition-transform ${recordingOpen ? "" : "-rotate-90"}`} />
+                Recording Settings
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-3 mt-3">
+                <div className="space-y-2">
+                  <Label htmlFor="recording-format">Format</Label>
+                  <ButtonGroup>
+                    <Button
+                      type="button"
+                      variant={config.recording.format === "jpeg" ? "default" : "outline"}
+                      onClick={() => updateRecording("format", "jpeg")}
+                      className="flex-1"
+                    >
+                      JPEG (Fast)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={config.recording.format === "png" ? "default" : "outline"}
+                      onClick={() => updateRecording("format", "png")}
+                      className="flex-1"
+                    >
+                      PNG (Lossless)
+                    </Button>
+                  </ButtonGroup>
+                  <p className="text-xs text-muted-foreground">JPEG is 10-20x faster, PNG is lossless</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="recording-fps">FPS (Frames Per Second)</Label>
+                  <Input
+                    id="recording-fps"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={config.recording.fps}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value)
+                      updateRecording("fps", isNaN(value) ? "" : value)
+                    }}
+                    placeholder="30"
+                  />
+                  <p className="text-xs text-muted-foreground">Common values: 15, 24, 30, 60</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="recording-quality">Quality</Label>
+                  <Input
+                    id="recording-quality"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.recording.quality}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value)
+                      updateRecording("quality", isNaN(value) ? "" : value)
+                    }}
+                    placeholder="0.95"
+                  />
+                  <p className="text-xs text-muted-foreground">JPEG quality 0.0-1.0 (0.95 recommended for visually lossless)</p>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
             {/* Theme Toggle */}
           <div className="flex items-center justify-between py-2">
             <Label htmlFor="theme-toggle">Dark Mode</Label>
