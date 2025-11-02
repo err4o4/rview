@@ -8,7 +8,7 @@ import { MessageType, type PointCloudMessage } from "@/lib/services/unifiedWebSo
 import { useSettings } from "@/lib/hooks/useSettings"
 import { TFViewer } from "@/components/tf-viewer"
 import * as THREE from "three"
-import { Loader2, RotateCcw, Navigation, Lock, Eye, EyeOff, Palette } from "lucide-react"
+import { Loader2, RotateCcw, Navigation, Lock, Eye, EyeOff, Palette, Video, Circle as RecordCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 
@@ -679,7 +679,17 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
   const [latestScanHighlightEnabled, setLatestScanHighlightEnabled] = useState(true)
   const [followPosition, setFollowPosition] = useState<THREE.Vector3 | null>(null)
   const [followRotation, setFollowRotation] = useState<THREE.Quaternion | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordedFrameCount, setRecordedFrameCount] = useState(0)
   const { settings } = useSettings()
+
+  // Recording refs - PNG sequence capture
+  const recordingFramesRef = useRef<string[]>([]) // Base64 PNG data URLs
+  const recordingIntervalRef = useRef<number | null>(null)
+  const frameCountRef = useRef<number>(0)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const originalPixelRatioRef = useRef<number>(1)
 
   const handleConnectionChange = useCallback((isConnected: boolean, err: string | null) => {
     setConnected(isConnected)
@@ -690,6 +700,140 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
     setFollowPosition(position)
     setFollowRotation(rotation)
   }, [])
+
+  // Start recording PNG sequence
+  const startRecording = useCallback(() => {
+    if (!canvasRef.current || !rendererRef.current) return
+
+    try {
+      // Boost pixel ratio for higher quality
+      originalPixelRatioRef.current = rendererRef.current.getPixelRatio()
+      rendererRef.current.setPixelRatio(Math.min(window.devicePixelRatio, 3)) // Up to 2x for quality
+
+      // Reset frame counter and storage
+      recordingFramesRef.current = []
+      frameCountRef.current = 0
+      setRecordedFrameCount(0)
+      setIsRecording(true)
+
+      // Capture frames at 30 FPS (33.33ms interval)
+      const captureFrame = () => {
+        if (!canvasRef.current) return
+
+        try {
+          // Capture canvas as PNG (lossless)
+          const dataURL = canvasRef.current.toDataURL('image/png')
+          recordingFramesRef.current.push(dataURL)
+          frameCountRef.current++
+          setRecordedFrameCount(frameCountRef.current)
+        } catch (err) {
+          console.error('Failed to capture frame:', err)
+        }
+      }
+
+      // Start capturing at 30 FPS
+      const interval = window.setInterval(captureFrame, 1000 / 30)
+      recordingIntervalRef.current = interval
+
+    } catch (err) {
+      console.error('Failed to start recording:', err)
+      setIsRecording(false)
+    }
+  }, [])
+
+  // Stop recording and download PNG sequence as zip
+  const stopRecording = useCallback(async () => {
+    if (recordingIntervalRef.current === null) return
+
+    // Stop capturing frames
+    window.clearInterval(recordingIntervalRef.current)
+    recordingIntervalRef.current = null
+    setIsRecording(false)
+
+    // Restore original pixel ratio
+    if (rendererRef.current) {
+      rendererRef.current.setPixelRatio(originalPixelRatioRef.current)
+    }
+
+    const totalFrames = recordingFramesRef.current.length
+    console.log(`Recording stopped. Total frames: ${totalFrames}`)
+
+    if (totalFrames === 0) {
+      console.warn('No frames captured')
+      return
+    }
+
+    // Download frames as individual PNGs (browser will prompt for each)
+    // In a real implementation, you'd want to use JSZip library to create a zip file
+    console.log('Downloading PNG sequence...')
+
+    // For now, download all frames individually
+    // Note: Most browsers will block multiple downloads, so we'll create a zip
+    try {
+      // Import JSZip dynamically
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+
+      // Add each frame to the zip
+      recordingFramesRef.current.forEach((dataURL, index) => {
+        // Convert data URL to blob
+        const base64Data = dataURL.split(',')[1]
+        const frameNumber = String(index).padStart(5, '0')
+        zip.file(`frame_${frameNumber}.png`, base64Data, { base64: true })
+      })
+
+      // Generate zip file
+      console.log('Generating zip file...')
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+
+      // Download the zip
+      const url = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = url
+      const filename = `pointcloud-recording-${Date.now()}-${totalFrames}frames.zip`
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      console.log(`Download complete: ${filename}`)
+      console.log('\n=== LOSSLESS VIDEO ENCODING OPTIONS ===\n')
+      console.log("# Option 1: Lossless H.264 with yuv444p (most compatible lossless)")
+      console.log('ffmpeg -framerate 30 -pattern_type glob -i "frame_*.png" -c:v libx264 -qp 0 -pix_fmt yuv444p -preset veryslow output.mp4')
+
+      console.log('# Option 2: ProRes 4444 (near-lossless, best compatibility with video editors)')
+      console.log('ffmpeg -framerate 30 -pattern_type glob -i "frame_*.png" -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le output.mov')
+
+    } catch (err) {
+      console.error('Failed to create zip:', err)
+      console.log('Falling back to individual frame downloads (first 10 frames only)...')
+
+      // Fallback: download first 10 frames individually
+      recordingFramesRef.current.slice(0, 10).forEach((dataURL, index) => {
+        const a = document.createElement('a')
+        a.href = dataURL
+        const frameNumber = String(index).padStart(5, '0')
+        a.download = `frame_${frameNumber}.png`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      })
+    }
+
+    // Clean up
+    recordingFramesRef.current = []
+    frameCountRef.current = 0
+  }, [])
+
+  // Toggle recording
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }, [isRecording, startRecording, stopRecording])
 
   return (
     <div className="relative w-full h-full min-h-[100px] bg-black/5 dark:bg-black/20 overflow-hidden">
@@ -768,7 +912,30 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleRecording}
+          title={isRecording ? "Stop recording PNG sequence (downloads as ZIP)" : "Start recording PNG sequence (30fps, lossless)"}
+          className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+            isRecording
+              ? "text-red-500 border-red-500 animate-pulse"
+              : "text-muted-foreground"
+          }`}
+        >
+          {isRecording ? <RecordCircle className="h-4 w-4 fill-current" /> : <Video className="h-4 w-4" />}
+        </Button>
       </div>
+
+      {/* Recording Indicator */}
+      {isRecording && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-500/90 backdrop-blur-sm rounded-full" style={{ marginTop: 'env(safe-area-inset-top)' }}>
+          <RecordCircle className="h-3 w-3 fill-white animate-pulse" />
+          <span className="text-xs font-medium text-white">
+            Recording PNG sequence: {recordedFrameCount} frames ({(recordedFrameCount / 30).toFixed(1)}s @ 30fps)
+          </span>
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -806,10 +973,21 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
           antialias: false, // Disable antialiasing for performance
           powerPreference: "high-performance",
           alpha: false,
+          preserveDrawingBuffer: true, // Essential for recording - prevents flickering
+        }}
+        onCreated={({ gl }) => {
+          // Store canvas and renderer refs for recording
+          canvasRef.current = gl.domElement
+          rendererRef.current = gl
+
+          // Configure color space - keep it simple for accurate colors
+          gl.outputColorSpace = THREE.SRGBColorSpace
+          gl.toneMapping = THREE.NoToneMapping // No tone mapping to avoid washed out colors
+          gl.toneMappingExposure = 1.0
         }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 10, 5]} intensity={1} />
+        <ambientLight intensity={1.2} />
+        <directionalLight position={[10, 10, 5]} intensity={1.0} />
 
         {/* Grid Helper */}
         <Grid
