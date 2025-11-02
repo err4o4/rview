@@ -125,6 +125,11 @@ export function usePointCloudRecording({
             // Create ImageBitmap from canvas (fast, non-blocking)
             const imageBitmap = await createImageBitmap(canvasRef.current)
 
+            // Calculate approximate memory usage (width * height * 4 bytes per pixel for RGBA)
+            const frameSizeMB = (imageBitmap.width * imageBitmap.height * 4) / (1024 * 1024)
+            const totalStoredFrames = recordingFramesRef.current.length + 1
+            const estimatedRAM_MB = frameSizeMB * totalStoredFrames
+
             // Store raw ImageBitmap for later encoding
             recordingFramesRef.current.push({
               index: frameIndex,
@@ -132,6 +137,11 @@ export function usePointCloudRecording({
             })
 
             setRecordedFrameCount(frameIndex + 1)
+
+            // Log memory usage every 100 frames
+            if (frameIndex % 100 === 0 && frameIndex > 0) {
+              console.log(`📊 Memory: ${totalStoredFrames} frames × ${frameSizeMB.toFixed(1)}MB = ~${estimatedRAM_MB.toFixed(0)}MB RAM used`)
+            }
           } catch (err) {
             console.error('Failed to capture frame:', err)
           }
@@ -244,64 +254,105 @@ export function usePointCloudRecording({
       return
     }
 
+    // Calculate total size and determine if we need to split into multiple ZIPs
+    const totalSize = encodedFrames.reduce((sum, blob) => sum + blob.size, 0)
+    const totalSizeMB = totalSize / (1024 * 1024)
+    const MAX_ZIP_SIZE_MB = 1500 // 1.5GB per ZIP to stay safe under 2GB browser limit
+
+    // Calculate frames per ZIP
+    const avgFrameSizeMB = totalSizeMB / successfulFrames
+    const framesPerZip = Math.floor(MAX_ZIP_SIZE_MB / avgFrameSizeMB)
+    const needsSplit = totalSizeMB > MAX_ZIP_SIZE_MB
+
+    const zipCount = needsSplit ? Math.ceil(successfulFrames / framesPerZip) : 1
+
+    if (needsSplit) {
+      console.log(`Recording is ${totalSizeMB.toFixed(0)}MB - splitting into ${zipCount} ZIP files`)
+    }
+
     // PHASE 2: Add frames to ZIP (60-80% progress)
     setProcessingPhase('adding')
 
     try {
-      // Import JSZip dynamically
       const JSZip = (await import('jszip')).default
-      const zip = new JSZip()
-
       const fileExt = settings.format === 'jpeg' ? 'jpg' : 'png'
+      const timestamp = Date.now()
 
-      // Add frames in chunks with periodic yields to event loop
-      const chunkSize = 10
-      for (let i = 0; i < encodedFrames.length; i += chunkSize) {
-        const chunk = encodedFrames.slice(i, i + chunkSize)
+      // Create and download ZIPs (split if needed)
+      for (let zipIndex = 0; zipIndex < zipCount; zipIndex++) {
+        const zip = new JSZip()
 
-        // Add chunk of frames (Blobs are added directly, much faster than base64)
-        chunk.forEach((blob, chunkIndex) => {
-          const frameNumber = String(i + chunkIndex).padStart(5, '0')
-          zip.file(`frame_${frameNumber}.${fileExt}`, blob, { binary: true })
-        })
+        const startFrame = zipIndex * framesPerZip
+        const endFrame = Math.min(startFrame + framesPerZip, successfulFrames)
+        const framesInThisZip = encodedFrames.slice(startFrame, endFrame)
 
-        // Update progress: 60-80% for adding files to ZIP
-        const addingProgress = 60 + Math.round(((i + chunkSize) / encodedFrames.length) * 20)
-        setZipProgress(Math.min(addingProgress, 80))
+        // Add frames to this ZIP
+        const chunkSize = 10
+        for (let i = 0; i < framesInThisZip.length; i += chunkSize) {
+          const chunk = framesInThisZip.slice(i, i + chunkSize)
 
-        // Yield to event loop to keep UI responsive
-        await new Promise(resolve => setTimeout(resolve, 0))
-      }
+          chunk.forEach((blob, chunkIndex) => {
+            const globalFrameNumber = startFrame + i + chunkIndex
+            const frameNumber = String(globalFrameNumber).padStart(5, '0')
+            zip.file(`frame_${frameNumber}.${fileExt}`, blob, { binary: true })
+          })
 
-      // PHASE 3: Generate ZIP (80-100% progress)
-      setProcessingPhase('compressing')
+          // Update progress: 60-80% for adding files to ZIP
+          const totalProgress = ((zipIndex * framesPerZip) + i + chunkSize) / successfulFrames
+          const addingProgress = 60 + Math.round(totalProgress * 20)
+          setZipProgress(Math.min(addingProgress, 80))
 
-      const zipBlob = await zip.generateAsync(
-        {
-          type: 'blob',
-          compression: 'STORE' // No compression - files are already compressed
-        },
-        (metadata) => {
-          // Update progress: 80-100% for ZIP generation
-          const zipProgress = 80 + Math.round(metadata.percent / 5)
-          setZipProgress(zipProgress)
+          // Yield to event loop to keep UI responsive
+          await new Promise(resolve => setTimeout(resolve, 0))
         }
-      )
+
+        // PHASE 3: Generate ZIP (80-100% progress for current ZIP)
+        setProcessingPhase('compressing')
+
+        const zipBlob = await zip.generateAsync(
+          {
+            type: 'blob',
+            compression: 'STORE' // No compression - files are already compressed
+          },
+          (metadata) => {
+            // Update progress: 80-100% for ZIP generation
+            const baseProgress = 80 + (zipIndex / zipCount) * 20
+            const zipProgress = baseProgress + Math.round((metadata.percent / 100) * (20 / zipCount))
+            setZipProgress(Math.round(zipProgress))
+          }
+        )
+
+        // Download this ZIP
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement('a')
+        a.href = url
+
+        const filename = needsSplit
+          ? `pointcloud-recording-${timestamp}-part${zipIndex + 1}of${zipCount}-frames${startFrame}-${endFrame - 1}.zip`
+          : `pointcloud-recording-${timestamp}-${successfulFrames}frames.zip`
+
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+
+        // Small delay between ZIP downloads
+        if (zipIndex < zipCount - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
 
       setZipProgress(100)
 
-      // Download the zip
-      const url = URL.createObjectURL(zipBlob)
-      const a = document.createElement('a')
-      a.href = url
-      const filename = `pointcloud-recording-${Date.now()}-${successfulFrames}frames.zip`
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
       // Log ffmpeg commands for video encoding
+      if (needsSplit) {
+        console.log(`\n=== SPLIT ZIP INSTRUCTIONS ===`)
+        console.log(`Downloaded ${zipCount} ZIP files. To combine frames:`)
+        console.log(`1. Extract all ZIP files to the same folder`)
+        console.log(`2. All frames are numbered sequentially across ZIPs\n`)
+      }
+
       if (settings.format === 'jpeg') {
         console.log(`\n=== VIDEO ENCODING OPTIONS (JPEG Input @ ${settings.fps} FPS) ===\n`)
         console.log('RECOMMENDED (high quality H.264):')
