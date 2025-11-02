@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import { Canvas, useThree, useFrame } from "@react-three/fiber"
 import { OrbitControls, Grid } from "@react-three/drei"
 import { useRosTopic } from "@/lib/hooks/useRosTopic"
@@ -12,10 +12,61 @@ import { Loader2, RotateCcw, Navigation, Lock, Eye, EyeOff, Palette } from "luci
 import { Button } from "@/components/ui/button"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 
+// Custom shader for distance-based point scaling
+const distanceScaledVertexShader = `
+  uniform vec3 tfPosition;
+  uniform float baseSize;
+  uniform bool enableScaling;
+
+  attribute vec3 color;
+  varying vec3 vColor;
+
+  void main() {
+    vColor = color;
+
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+
+    float pointSize = baseSize;
+
+    if (enableScaling) {
+      // Calculate distance from this point to TF position
+      float dist = distance(position, tfPosition);
+
+      // Scale from 1x below 1m, then linearly from 1x at 1m to 30x at 100m
+      float scale = 1.0;
+      if (dist < 1.0) {
+        scale = 1.0;
+      } else {
+        // Linear interpolation from 1x at 1m to 30x at 100m
+        // scale = 1.0 + (dist - 1.0) * (29.0 / 99.0)
+        scale = 1.0 + (dist - 1.0) * 0.75;
+        //scale = dist * 2.0;
+      }
+      pointSize *= scale;
+    }
+
+    gl_PointSize = pointSize * (300.0 / -mvPosition.z);
+  }
+`
+
+const distanceScaledFragmentShader = `
+  varying vec3 vColor;
+
+  void main() {
+    // Circular point shape
+    vec2 center = gl_PointCoord - vec2(0.5);
+    if (length(center) > 0.5) discard;
+
+    gl_FragColor = vec4(vColor, 1.0);
+  }
+`
+
 interface PointCloudProps {
   topic: string
   clearTrigger?: number
   latestScanHighlight?: boolean
+  tfPosition?: THREE.Vector3 | null
   onPointCountChange?: (count: number) => void
   onConnectionChange?: (connected: boolean, error: string | null) => void
 }
@@ -26,7 +77,7 @@ interface PointCloudFrame {
   colors?: Float32Array
 }
 
-function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCountChange, onConnectionChange }: PointCloudProps) {
+function PointCloud({ topic, clearTrigger, latestScanHighlight = true, tfPosition, onPointCountChange, onConnectionChange }: PointCloudProps) {
   const pointsRef = useRef<THREE.Points>(null) // Older scans
   const latestPointsRef = useRef<THREE.Points>(null) // Latest scan
   const framesRef = useRef<PointCloudFrame[]>([])
@@ -39,6 +90,36 @@ function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCo
   const pointSize = settings.pointcloud.pointSize
   const latestScanPointSize = settings.pointcloud.latestScanPointSize
   const latestScanMode = settings.pointcloud.latestScanMode
+  const dynamicLatestPointScaling = settings.pointcloud.dynamicLatestPointScaling
+
+  // Shader material for distance-based point scaling
+  const shaderMaterial = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        tfPosition: { value: new THREE.Vector3(0, 0, 0) },
+        baseSize: { value: latestScanPointSize * 0.005 },
+        enableScaling: { value: dynamicLatestPointScaling },
+      },
+      vertexShader: distanceScaledVertexShader,
+      fragmentShader: distanceScaledFragmentShader,
+      depthTest: true,
+      depthWrite: true,
+    })
+  }, [])
+
+  // Update shader uniforms
+  useFrame(() => {
+    if (shaderMaterial) {
+      // Update TF position in shader
+      if (tfPosition) {
+        shaderMaterial.uniforms.tfPosition.value.copy(tfPosition)
+      }
+
+      // Update base size and scaling toggle
+      shaderMaterial.uniforms.baseSize.value = (latestScanHighlight ? latestScanPointSize : pointSize) * 0.005
+      shaderMaterial.uniforms.enableScaling.value = dynamicLatestPointScaling
+    }
+  })
 
   // Memoize the message handler to prevent re-subscriptions
   const handleMessage = useCallback((message: PointCloudMessage) => {
@@ -326,7 +407,7 @@ function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCo
 
   return (
     <>
-      {/* Older scans - normal size */}
+      {/* Older scans - normal size without dynamic scaling */}
       <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial
@@ -337,16 +418,9 @@ function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCo
           depthWrite={true}
         />
       </points>
-      {/* Latest scan - size depends on highlight toggle */}
-      <points ref={latestPointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
+      {/* Latest scan - uses custom shader for per-point distance-based scaling */}
+      <points ref={latestPointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false} material={shaderMaterial}>
         <bufferGeometry />
-        <pointsMaterial
-          size={(latestScanHighlight ? latestScanPointSize : pointSize) * 0.005}
-          vertexColors={true}
-          sizeAttenuation={true}
-          depthTest={true}
-          depthWrite={true}
-        />
       </points>
     </>
   )
@@ -683,6 +757,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
           topic={topic}
           clearTrigger={clearTrigger}
           latestScanHighlight={latestScanHighlightEnabled}
+          tfPosition={followPosition}
           onPointCountChange={setPointCount}
           onConnectionChange={handleConnectionChange}
         />

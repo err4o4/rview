@@ -294,6 +294,16 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 placeholder="90"
               />
             </div>
+            <div className="flex items-center justify-between space-x-2">
+              <Label htmlFor="dynamic-scaling" className="flex-1 cursor-pointer">
+                Dynamic Latest Point Scaling
+              </Label>
+              <Switch
+                id="dynamic-scaling"
+                checked={config.pointcloud.dynamicLatestPointScaling}
+                onCheckedChange={(checked) => updatePointcloud("dynamicLatestPointScaling", checked)}
+              />
+            </div>
           </div>
 
           {/* Camera Block */}

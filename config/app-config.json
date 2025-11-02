@@ -9,7 +9,8 @@
     "pointSize": 0.1,
     "latestScanPointSize": 2.5,
     "latestScanMode": "brighter-red",
-    "fov": 120
+    "fov": 120,
+    "dynamicLatestPointScaling": true
   },
   "camera": {
     "topic": "/usb_cam/image_raw"
