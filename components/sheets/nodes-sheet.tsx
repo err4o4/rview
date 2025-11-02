@@ -69,7 +69,7 @@ export function NodesSheet({ open, onOpenChange }: NodesSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
-        <Button variant="ghost"><Workflow/></Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8"><Workflow className="h-4 w-4"/></Button>
       </SheetTrigger>
       <SheetContent
         className="flex flex-col"

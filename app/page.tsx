@@ -19,15 +19,15 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
-      {/* Fixed Header */}
-      <header className="fixed top-0 left-0 right-0 z-20 bg-background border-b" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-        <div className="w-full px-4 h-13 flex items-center justify-between max-w-screen-2xl mx-auto">
-          {/* Left Side - Title and Connection Status */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">RView</h1>
+      {/* Split Header - Two Separate Blocks */}
+      <header className="fixed top-0 left-0 right-0 z-20 pointer-events-none" style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top))' }}>
+        <div className="w-full px-4 flex items-start justify-between">
+          {/* Left Block - Title and Connection Status */}
+          <div className="h-10 flex items-center gap-3 px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border pointer-events-auto">
+            <h1 className="text-base font-semibold">RView</h1>
 
             {/* Connection Status */}
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-background/90 backdrop-blur-sm">
+            <div className="flex items-center gap-2">
               <div
                 className={`w-2 h-2 rounded-full ${
                   connected ? "bg-green-500 animate-pulse" : "bg-red-500"
@@ -39,8 +39,8 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Side - Sheet Buttons */}
-          <div className="flex items-center gap-2">
+          {/* Right Block - Sheet Buttons */}
+          <div className="h-10 flex items-center gap-3 px-3 py-1 bg-background/90 backdrop-blur-sm rounded-md border pointer-events-auto">
             <NodesSheet open={nodesOpen} onOpenChange={setNodesOpen} />
             <RecordSheet open={recordOpen} onOpenChange={setRecordOpen} />
             <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
@@ -48,14 +48,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Content - with padding to account for fixed header */}
-      <main
-        className="fixed inset-0 overflow-hidden"
-        style={{
-          top: 'calc(3.25rem + env(safe-area-inset-top))',
-          bottom: 0
-        }}
-      >
+      {/* Main Content - extends behind header */}
+      <main className="fixed inset-0 overflow-hidden">
         {loaded && (
           <div className="w-full h-full relative">
             <PointCloudViewer

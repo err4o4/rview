@@ -8,13 +8,14 @@ import { MessageType, type PointCloudMessage } from "@/lib/services/unifiedWebSo
 import { useSettings } from "@/lib/hooks/useSettings"
 import { TFViewer } from "@/components/tf-viewer"
 import * as THREE from "three"
-import { Loader2, RotateCcw, Navigation } from "lucide-react"
+import { Loader2, RotateCcw, Navigation, Lock, Eye, EyeOff, Palette } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 
 interface PointCloudProps {
   topic: string
   clearTrigger?: number
+  latestScanHighlight?: boolean
   onPointCountChange?: (count: number) => void
   onConnectionChange?: (connected: boolean, error: string | null) => void
 }
@@ -22,17 +23,22 @@ interface PointCloudProps {
 interface PointCloudFrame {
   timestamp: number
   points: Float32Array
+  colors?: Float32Array
 }
 
-function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChange }: PointCloudProps) {
-  const pointsRef = useRef<THREE.Points>(null)
+function PointCloud({ topic, clearTrigger, latestScanHighlight = true, onPointCountChange, onConnectionChange }: PointCloudProps) {
+  const pointsRef = useRef<THREE.Points>(null) // Older scans
+  const latestPointsRef = useRef<THREE.Points>(null) // Latest scan
   const framesRef = useRef<PointCloudFrame[]>([])
   const animationFrameRef = useRef<number | undefined>(undefined)
   const bufferCapacityRef = useRef<number>(0) // Track buffer capacity to avoid recreating
+  const latestBufferCapacityRef = useRef<number>(0) // Track buffer capacity for latest scan
   const { settings } = useSettings()
-  const decayTimeMs = settings.pointcloud.decayTimeMs
+  const decayTimeMs = settings.pointcloud.decayTimeSeconds * 1000 // Convert seconds to milliseconds
   const maxPoints = settings.pointcloud.maxPoints
   const pointSize = settings.pointcloud.pointSize
+  const latestScanPointSize = settings.pointcloud.latestScanPointSize
+  const latestScanMode = settings.pointcloud.latestScanMode
 
   // Memoize the message handler to prevent re-subscriptions
   const handleMessage = useCallback((message: PointCloudMessage) => {
@@ -42,11 +48,13 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
       framesRef.current = [{
         timestamp: message.timestamp,
         points: message.points,
+        colors: message.colors,
       }]
     } else {
       framesRef.current.push({
         timestamp: message.timestamp,
         points: message.points,
+        colors: message.colors,
       })
     }
   }, [decayTimeMs])
@@ -69,18 +77,22 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
     if (clearTrigger !== undefined && clearTrigger > 0) {
       framesRef.current = []
       bufferCapacityRef.current = 0 // Reset capacity on clear
+      latestBufferCapacityRef.current = 0
       // Clear the geometry
       if (pointsRef.current?.geometry) {
         pointsRef.current.geometry.setDrawRange(0, 0)
-        onPointCountChange?.(0)
       }
+      if (latestPointsRef.current?.geometry) {
+        latestPointsRef.current.geometry.setDrawRange(0, 0)
+      }
+      onPointCountChange?.(0)
     }
   }, [clearTrigger, onPointCountChange])
 
   // Continuously update geometry based on decay time
   useEffect(() => {
     const updateGeometry = () => {
-      if (!pointsRef.current) {
+      if (!pointsRef.current || !latestPointsRef.current) {
         animationFrameRef.current = requestAnimationFrame(updateGeometry)
         return
       }
@@ -95,30 +107,130 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
         )
       }
 
-      // Merge all active frames into a single geometry
+      // Separate latest frame from older frames
       if (framesRef.current.length > 0) {
-        // Calculate total size
-        let totalSize = 0
-        framesRef.current.forEach((frame) => {
-          totalSize += frame.points.length
-        })
+        const latestFrame = framesRef.current[framesRef.current.length - 1]
+        const olderFrames = framesRef.current.slice(0, -1)
 
-        if (totalSize > 0) {
-          // Pre-allocate and copy data efficiently
+        // Render latest frame
+        const latestPoints = latestFrame.points
+        const latestPointCount = latestPoints.length / 3
+        const latestColors = new Float32Array(latestPoints.length)
+
+        // Set colors based on highlight toggle and mode
+        if (latestScanHighlight) {
+          if (latestScanMode === "brighter-red") {
+            // Bright red
+            for (let i = 0; i < latestPointCount; i++) {
+              latestColors[i * 3] = 1.0     // R - bright red
+              latestColors[i * 3 + 1] = 0.0 // G
+              latestColors[i * 3 + 2] = 0.0 // B
+            }
+          } else {
+            // Brighter mode - use intensity colors but increase brightness
+            if (latestFrame.colors) {
+              for (let i = 0; i < latestPointCount; i++) {
+                // Increase brightness by 50%
+                latestColors[i * 3] = Math.min(1.0, latestFrame.colors[i * 3] * 1.5)
+                latestColors[i * 3 + 1] = Math.min(1.0, latestFrame.colors[i * 3 + 1] * 1.5)
+                latestColors[i * 3 + 2] = Math.min(1.0, latestFrame.colors[i * 3 + 2] * 1.5)
+              }
+            } else {
+              // Default to white if no colors available
+              for (let i = 0; i < latestPointCount; i++) {
+                latestColors[i * 3] = 1.0
+                latestColors[i * 3 + 1] = 1.0
+                latestColors[i * 3 + 2] = 1.0
+              }
+            }
+          }
+        } else {
+          // No highlight - use same colors as older frames
+          if (latestFrame.colors) {
+            latestColors.set(latestFrame.colors)
+          } else {
+            // Default to white if no colors available
+            for (let i = 0; i < latestPointCount; i++) {
+              latestColors[i * 3] = 1.0
+              latestColors[i * 3 + 1] = 1.0
+              latestColors[i * 3 + 2] = 1.0
+            }
+          }
+        }
+
+        // Update latest scan geometry
+        const latestGeometry = latestPointsRef.current.geometry
+        const latestPosAttr = latestGeometry.getAttribute('position') as THREE.BufferAttribute
+
+        if (!latestPosAttr || latestBufferCapacityRef.current < latestPointCount) {
+          const newCapacity = Math.ceil(latestPointCount * 1.2)
+          const newBuffer = new Float32Array(newCapacity * 3)
+          newBuffer.set(latestPoints)
+          const newAttribute = new THREE.BufferAttribute(newBuffer, 3)
+          newAttribute.setUsage(THREE.DynamicDrawUsage)
+          latestGeometry.setAttribute('position', newAttribute)
+          latestBufferCapacityRef.current = newCapacity
+          latestGeometry.setDrawRange(0, latestPointCount)
+        } else {
+          latestPosAttr.set(latestPoints, 0)
+          latestPosAttr.needsUpdate = true
+          latestGeometry.setDrawRange(0, latestPointCount)
+        }
+
+        // Update latest scan colors
+        const latestColorAttr = latestGeometry.getAttribute('color') as THREE.BufferAttribute
+        if (!latestColorAttr || latestColorAttr.array.length < latestColors.length) {
+          const newCapacity = Math.ceil(latestPointCount * 1.2)
+          const newColorBuffer = new Float32Array(newCapacity * 3)
+          newColorBuffer.set(latestColors)
+          const newColorAttribute = new THREE.BufferAttribute(newColorBuffer, 3)
+          newColorAttribute.setUsage(THREE.DynamicDrawUsage)
+          latestGeometry.setAttribute('color', newColorAttribute)
+        } else {
+          latestColorAttr.array.set(latestColors, 0)
+          latestColorAttr.needsUpdate = true
+        }
+
+        // Render older frames
+        if (olderFrames.length > 0) {
+          // Calculate total size for older frames
+          let totalSize = 0
+          olderFrames.forEach((frame) => {
+            totalSize += frame.points.length
+          })
+
           const allPoints = new Float32Array(totalSize)
+          const allColors = new Float32Array(totalSize)
           let offset = 0
-          framesRef.current.forEach((frame) => {
+
+          olderFrames.forEach((frame) => {
             allPoints.set(frame.points, offset)
+
+            if (frame.colors) {
+              // Use intensity-based colors
+              allColors.set(frame.colors, offset)
+            } else {
+              // Default to white if no colors available
+              const numPoints = frame.points.length / 3
+              for (let i = 0; i < numPoints; i++) {
+                allColors[offset + i * 3] = 1.0
+                allColors[offset + i * 3 + 1] = 1.0
+                allColors[offset + i * 3 + 2] = 1.0
+              }
+            }
+
             offset += frame.points.length
           })
 
           // Downsample if exceeds max points budget
           let finalPoints = allPoints
+          let finalColors = allColors
           const totalPointCount = allPoints.length / 3
 
           if (maxPoints > 0 && totalPointCount > maxPoints) {
             // Random sampling: better spatial distribution than sequential
             const decimatedPoints = new Float32Array(maxPoints * 3)
+            const decimatedColors = new Float32Array(maxPoints * 3)
             const step = totalPointCount / maxPoints
 
             // Sample points at regular intervals with slight randomization
@@ -128,9 +240,14 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
               decimatedPoints[i * 3] = allPoints[offset]         // x
               decimatedPoints[i * 3 + 1] = allPoints[offset + 1] // y
               decimatedPoints[i * 3 + 2] = allPoints[offset + 2] // z
+
+              decimatedColors[i * 3] = allColors[offset]         // r
+              decimatedColors[i * 3 + 1] = allColors[offset + 1] // g
+              decimatedColors[i * 3 + 2] = allColors[offset + 2] // b
             }
 
             finalPoints = decimatedPoints
+            finalColors = decimatedColors
           }
 
           const pointCount = finalPoints.length / 3
@@ -158,12 +275,40 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
             currentGeometry.setDrawRange(0, pointCount)
           }
 
-          // Report actual point count being rendered
-          onPointCountChange?.(pointCount)
+          // Update colors
+          const colorAttr = currentGeometry.getAttribute('color') as THREE.BufferAttribute
+          const colorBufferSize = colorAttr ? colorAttr.array.length : 0
+          const requiredSize = finalColors.length
+
+          if (!colorAttr || colorBufferSize < requiredSize) {
+            // Need to create new color buffer
+            const newCapacity = Math.ceil(pointCount * 1.2)
+            const newColorBuffer = new Float32Array(newCapacity * 3)
+            newColorBuffer.set(finalColors)
+            const newColorAttribute = new THREE.BufferAttribute(newColorBuffer, 3)
+            newColorAttribute.setUsage(decayTimeMs > 0 ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage)
+            currentGeometry.setAttribute('color', newColorAttribute)
+          } else {
+            // Reuse existing color buffer
+            colorAttr.array.set(finalColors, 0)
+            colorAttr.needsUpdate = true
+          }
+
+          // Report actual point count being rendered (older + latest)
+          onPointCountChange?.(pointCount + latestPointCount)
+        } else {
+          // No older frames, clear older geometry
+          pointsRef.current.geometry.setDrawRange(0, 0)
+          onPointCountChange?.(latestPointCount)
         }
-      } else if (pointsRef.current.geometry) {
-        // Clear geometry if no frames remain (but keep buffer capacity)
-        pointsRef.current.geometry.setDrawRange(0, 0)
+      } else {
+        // No frames at all, clear everything
+        if (pointsRef.current?.geometry) {
+          pointsRef.current.geometry.setDrawRange(0, 0)
+        }
+        if (latestPointsRef.current?.geometry) {
+          latestPointsRef.current.geometry.setDrawRange(0, 0)
+        }
         onPointCountChange?.(0)
       }
 
@@ -177,20 +322,33 @@ function PointCloud({ topic, clearTrigger, onPointCountChange, onConnectionChang
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [decayTimeMs, maxPoints, pointSize, onPointCountChange])
+  }, [decayTimeMs, maxPoints, pointSize, latestScanPointSize, latestScanHighlight, latestScanMode, onPointCountChange])
 
   return (
-    <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
-      <bufferGeometry />
-      <pointsMaterial
-        size={pointSize * 0.005}
-        vertexColors={false}
-        sizeAttenuation={true}
-        color={0x3b82f6}
-        depthTest={true}
-        depthWrite={true}
-      />
-    </points>
+    <>
+      {/* Older scans - normal size */}
+      <points ref={pointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial
+          size={pointSize * 0.005}
+          vertexColors={true}
+          sizeAttenuation={true}
+          depthTest={true}
+          depthWrite={true}
+        />
+      </points>
+      {/* Latest scan - size depends on highlight toggle */}
+      <points ref={latestPointsRef} rotation={[Math.PI / 2, Math.PI, 0]} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial
+          size={(latestScanHighlight ? latestScanPointSize : pointSize) * 0.005}
+          vertexColors={true}
+          sizeAttenuation={true}
+          depthTest={true}
+          depthWrite={true}
+        />
+      </points>
+    </>
   )
 }
 
@@ -214,19 +372,24 @@ function CameraFollowController({
   followPosition,
   followRotation,
   smoothing,
+  lockAngle,
 }: {
   enabled: boolean
   followPosition: THREE.Vector3 | null
   followRotation: THREE.Quaternion | null
   smoothing: number
+  lockAngle: boolean
 }) {
+  const { camera } = useThree()
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
 
-  // Store the initial relative offset when follow mode is first enabled
+  // Store the initial relative offset and distance when follow mode is first enabled
   const initialOffsetRef = useRef<THREE.Vector3 | null>(null)
+  const initialDistanceRef = useRef<number | null>(null)
   const lastTFPositionRef = useRef<THREE.Vector3 | null>(null)
   const smoothedTFPositionRef = useRef<THREE.Vector3 | null>(null)
   const lastEnabledRef = useRef<boolean>(false)
+  const lastAngleLockRef = useRef<boolean>(false)
 
   useFrame(() => {
     if (!controlsRef.current) return
@@ -238,16 +401,20 @@ function CameraFollowController({
       adjustedTFPosition.applyAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
       adjustedTFPosition.applyAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
 
-      // When follow is first enabled, capture the initial offset
+      // When follow is first enabled, capture the initial state
       if (!lastEnabledRef.current) {
         // Calculate offset from current orbit target to TF position
         initialOffsetRef.current = controlsRef.current.target.clone().sub(adjustedTFPosition)
+
+        // Calculate and store the initial distance from camera to target
+        initialDistanceRef.current = camera.position.distanceTo(controlsRef.current.target)
+
         lastTFPositionRef.current = adjustedTFPosition.clone()
         smoothedTFPositionRef.current = adjustedTFPosition.clone()
         lastEnabledRef.current = true
       }
 
-      // If following is enabled, update the orbit target to follow TF
+      // If following is enabled, update the orbit target and camera to follow TF
       if (initialOffsetRef.current && lastTFPositionRef.current && smoothedTFPositionRef.current) {
         // Smoothly interpolate towards the new TF position
         // Higher smoothing value = smoother but slower follow (0 = instant, 1 = very slow)
@@ -257,8 +424,56 @@ function CameraFollowController({
         // Calculate how much the smoothed TF has moved
         const tfDelta = smoothedTFPositionRef.current.clone().sub(lastTFPositionRef.current)
 
-        // Move the orbit controls target by the smoothed delta
+        // Move both the camera and target by the same delta to maintain relative position
+        camera.position.add(tfDelta)
         controlsRef.current.target.add(tfDelta)
+
+        // Handle angle locking
+        if (lockAngle && followRotation) {
+          // When angle lock is first enabled, capture current distance
+          if (!lastAngleLockRef.current) {
+            initialDistanceRef.current = camera.position.distanceTo(controlsRef.current.target)
+          }
+
+          // Apply the same rotation adjustment as for position
+          const adjustedTFRotation = followRotation.clone()
+          const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+          const rotZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
+          adjustedTFRotation.premultiply(rotX)
+          adjustedTFRotation.premultiply(rotZ)
+
+          // Calculate direction vector from TF's X-axis (red arrow)
+          const tfForward = new THREE.Vector3(1, 0, 0).applyQuaternion(adjustedTFRotation)
+
+          // Use current distance to allow zooming
+          const currentDistance = camera.position.distanceTo(controlsRef.current.target)
+
+          // Check if user has zoomed (distance changed)
+          if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
+            // User has zoomed, update the stored distance
+            initialDistanceRef.current = currentDistance
+          }
+
+          // Force target to be at TF position (center on TF)
+          controlsRef.current.target.copy(smoothedTFPositionRef.current)
+
+          // Position camera behind the TF at the current distance, looking in the direction of red arrow
+          const distance = currentDistance
+          const cameraOffset = tfForward.clone().multiplyScalar(-distance)
+
+          // Set camera position directly behind red arrow
+          camera.position.copy(smoothedTFPositionRef.current.clone().add(cameraOffset))
+
+          // Make camera look at the target (TF center)
+          camera.lookAt(controlsRef.current.target)
+        } else {
+          // Check if user has changed the distance (zoomed in/out) - only when not angle locked
+          const currentDistance = camera.position.distanceTo(controlsRef.current.target)
+          if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
+            // User has zoomed, update the stored distance
+            initialDistanceRef.current = currentDistance
+          }
+        }
 
         // Update last position to the smoothed position
         lastTFPositionRef.current.copy(smoothedTFPositionRef.current)
@@ -267,11 +482,19 @@ function CameraFollowController({
         controlsRef.current.update()
       }
     } else if (lastEnabledRef.current) {
-      // When follow is disabled, clear the offset
+      // When follow is disabled, clear the stored state
       initialOffsetRef.current = null
+      initialDistanceRef.current = null
       lastTFPositionRef.current = null
       smoothedTFPositionRef.current = null
       lastEnabledRef.current = false
+    }
+
+    // Reset angle lock tracking when disabled
+    if (!lockAngle) {
+      lastAngleLockRef.current = false
+    } else {
+      lastAngleLockRef.current = true
     }
   })
 
@@ -283,9 +506,9 @@ function CameraFollowController({
       maxDistance={2000}
       enableDamping
       dampingFactor={0.05}
-      enablePan={true}
-      enableRotate={true}
-      enableZoom={true}
+      enablePan={!lockAngle} // Disable pan when angle is locked
+      enableRotate={!lockAngle} // Disable rotation when angle is locked
+      enableZoom={true} // Only zoom allowed when locked
     />
   )
 }
@@ -296,6 +519,9 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cameraFollowEnabled, setCameraFollowEnabled] = useState(false)
+  const [cameraAngleLockEnabled, setCameraAngleLockEnabled] = useState(false)
+  const [tfVisible, setTfVisible] = useState(true)
+  const [latestScanHighlightEnabled, setLatestScanHighlightEnabled] = useState(true)
   const [followPosition, setFollowPosition] = useState<THREE.Vector3 | null>(null)
   const [followRotation, setFollowRotation] = useState<THREE.Quaternion | null>(null)
   const { settings } = useSettings()
@@ -312,8 +538,18 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
 
   return (
     <div className="relative w-full h-full min-h-[100px] bg-black/5 dark:bg-black/20 overflow-hidden">
-      {/* Topic Info with Clear Button */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+      {/* Topic Info - Left Side */}
+      <div className="absolute left-4 z-10" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.5rem)' }}>
+        <div className="px-3 py-2 bg-background/90 backdrop-blur-sm rounded-md border">
+          <div className="text-xs text-muted-foreground">{topic}</div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5">
+            {pointCount.toLocaleString()} points
+          </div>
+        </div>
+      </div>
+
+      {/* Control Buttons - Right Side */}
+      <div className="absolute right-4 z-10 flex items-center gap-2" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.5rem)' }}>
         <Button
           variant="ghost"
           size="icon"
@@ -330,18 +566,53 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         <Button
           variant="ghost"
           size="icon"
+          onClick={() => setCameraAngleLockEnabled(prev => !prev)}
+          title={cameraAngleLockEnabled ? "Disable angle lock" : "Enable angle lock"}
+          className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+            cameraAngleLockEnabled
+              ? "text-red-500 border-red-500"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Lock className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setTfVisible(prev => !prev)}
+          title={tfVisible ? "Hide TF arrows" : "Show TF arrows"}
+          className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+            tfVisible
+              ? "text-green-500 border-green-500"
+              : "text-muted-foreground"
+          }`}
+        >
+          {tfVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setLatestScanHighlightEnabled(prev => !prev)}
+          title={latestScanHighlightEnabled ? "Disable latest scan highlight" : "Enable latest scan highlight"}
+          className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+            latestScanHighlightEnabled
+              ? settings.pointcloud.latestScanMode === "brighter-red"
+                ? "text-red-500 border-red-500"
+                : "text-yellow-500 border-yellow-500"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Palette className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setClearTrigger(prev => prev + 1)}
           title="Clear points"
           className="h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border text-muted-foreground"
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
-        <div className="px-3 py-2 bg-background/90 backdrop-blur-sm rounded-md border">
-          <div className="text-xs text-muted-foreground">{topic}</div>
-          <div className="text-xs text-muted-foreground/70 mt-0.5">
-            {pointCount.toLocaleString()} points
-          </div>
-        </div>
       </div>
 
       {/* Error Message */}
@@ -369,13 +640,13 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
       <Canvas
         camera={{
           position: [5, 5, 5],
-          fov: 60,
+          fov: 90,
           near: 0.01,
           far: 5000 // Large far plane for 1km+ point clouds
         }}
         className="w-full h-full"
         dpr={[1, 1.5]} // Limit pixel ratio for performance (1x on low-end, 1.5x on high-end)
-        performance={{ min:1 }} // Enable automatic performance scaling
+        performance={{ min: 0.5 }} // Enable automatic performance scaling
         gl={{
           antialias: false, // Disable antialiasing for performance
           powerPreference: "high-performance",
@@ -403,6 +674,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         <PointCloud
           topic={topic}
           clearTrigger={clearTrigger}
+          latestScanHighlight={latestScanHighlightEnabled}
           onPointCountChange={setPointCount}
           onConnectionChange={handleConnectionChange}
         />
@@ -411,6 +683,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
         <TFViewer
           topic={settings.tf.topic}
           enabled={settings.tf.enabled}
+          visible={tfVisible}
           followFrameId={cameraFollowEnabled ? settings.tf.follow.frameId : undefined}
           onFollowTransformUpdate={handleFollowTransformUpdate}
         />
@@ -424,6 +697,7 @@ export function PointCloudViewer({ topic }: PointCloudProps) {
           followPosition={followPosition}
           followRotation={followRotation}
           smoothing={settings.tf.follow.smoothing}
+          lockAngle={cameraAngleLockEnabled}
         />
       </Canvas>
 

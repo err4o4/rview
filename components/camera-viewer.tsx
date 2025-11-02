@@ -109,7 +109,7 @@ export function CameraViewer({ topic }: CameraViewerProps) {
 
   return (
     <div
-      className="absolute left-4 bottom-4 z-10 bg-background/90 backdrop-blur-sm border rounded-md shadow-lg overflow-hidden"
+      className="absolute left-4 bottom-4 z-10 bg-background/90 backdrop-blur-sm rounded-md shadow-lg overflow-hidden"
       style={{
         width: '240px',
         maxWidth: '50vw',
@@ -129,14 +129,12 @@ export function CameraViewer({ topic }: CameraViewerProps) {
           style={{ display: 'block' }}
         />
       )}
-      {!imageUrl && !error && (
-        <div className="p-4 text-xs text-muted-foreground text-center">
-          Waiting for image on {topic}
+      {imageUrl && !error && (
+        <div className="absolute bottom-0 left-0 right-0 bg-background/60 px-2 py-1">
+          <p className="text-xs text-muted-foreground truncate">(topic)</p>
         </div>
       )}
-      <div className="absolute bottom-0 left-0 right-0 bg-background/60 px-2 py-1">
-        <p className="text-xs text-muted-foreground truncate">{imageUrl && !error && (topic)}</p>
-      </div>
+      
     </div>
   )
 }

@@ -15,9 +15,11 @@ export interface ConnectionConfig {
 
 export interface PointCloudConfig {
   topic: string;
-  decayTimeMs: number;
+  decayTimeSeconds: number; // Time in seconds before points fade out (0 = infinite)
   maxPoints: number; // Maximum number of points to render (for performance)
   pointSize: number; // Size of each point in pixels
+  latestScanPointSize: number; // Size of latest scan points in pixels
+  latestScanMode: "brighter" | "brighter-red"; // How to highlight latest scan
 }
 
 export interface CameraConfig {

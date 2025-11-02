@@ -9,6 +9,7 @@ import * as THREE from "three"
 interface TFViewerProps {
   topic: string
   enabled?: boolean
+  visible?: boolean
   followFrameId?: string
   onFollowTransformUpdate?: (position: THREE.Vector3, rotation: THREE.Quaternion) => void
 }
@@ -20,6 +21,7 @@ interface TFViewerProps {
 export function TFViewer({
   topic,
   enabled = true,
+  visible = true,
   followFrameId,
   onFollowTransformUpdate
 }: TFViewerProps) {
@@ -74,6 +76,13 @@ export function TFViewer({
     onMessage: handleMessage,
   })
 
+  // Update visibility when prop changes
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.visible = visible
+    }
+  }, [visible])
+
   // Cleanup old transforms that haven't been updated
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
@@ -86,7 +95,7 @@ export function TFViewer({
     }
   }, [])
 
-  return <group ref={groupRef} rotation={[Math.PI / 2, Math.PI, 0]} />
+  return <group ref={groupRef} rotation={[Math.PI / 2, Math.PI, 0]} visible={visible} />
 }
 
 /**

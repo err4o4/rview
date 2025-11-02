@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Settings, Plus, Trash2, ChevronDown } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -171,7 +172,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
-        <Button variant="ghost"><Settings /></Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8"><Settings className="h-4 w-4" /></Button>
       </SheetTrigger>
       <SheetContent
         className="flex flex-col w-full sm:max-w-md"
@@ -215,16 +216,16 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pointcloud-decay">Decay Time (ms, 0 = never decay)</Label>
+              <Label htmlFor="pointcloud-decay">Decay Time (s, 0 = never decay)</Label>
               <Input
                 id="pointcloud-decay"
                 type="number"
-                value={config.pointcloud.decayTimeMs}
+                value={config.pointcloud.decayTimeSeconds}
                 onChange={(e) => {
                   const value = parseInt(e.target.value)
-                  updatePointcloud("decayTimeMs", isNaN(value) ? 0 : value)
+                  updatePointcloud("decayTimeSeconds", isNaN(value) ? "" : value)
                 }}
-                placeholder="4000"
+                placeholder="10"
               />
             </div>
             <div className="space-y-2">
@@ -233,7 +234,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 id="pointcloud-maxpoints"
                 type="number"
                 value={config.pointcloud.maxPoints}
-                onChange={(e) => updatePointcloud("maxPoints", parseInt(e.target.value) || 0)}
+                onChange={(e) => updatePointcloud("maxPoints", parseInt(e.target.value) || "")}
                 placeholder="100000"
               />
             </div>
@@ -244,9 +245,41 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 type="number"
                 step="0.1"
                 value={config.pointcloud.pointSize}
-                onChange={(e) => updatePointcloud("pointSize", parseFloat(e.target.value) || 2)}
+                onChange={(e) => updatePointcloud("pointSize", parseFloat(e.target.value) || "")}
                 placeholder="2"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pointcloud-latest-size">Latest Scan Point Size</Label>
+              <Input
+                id="pointcloud-latest-size"
+                type="number"
+                step="0.1"
+                value={config.pointcloud.latestScanPointSize}
+                onChange={(e) => updatePointcloud("latestScanPointSize", parseFloat(e.target.value) || "")}
+                placeholder="3"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Latest Scan Highlight Mode</Label>
+              <ButtonGroup className="w-full">
+                <Button
+                  type="button"
+                  variant={config.pointcloud.latestScanMode === "brighter" ? "default" : "outline"}
+                  onClick={() => updatePointcloud("latestScanMode", "brighter")}
+                  className="flex-1"
+                >
+                  Brighter
+                </Button>
+                <Button
+                  type="button"
+                  variant={config.pointcloud.latestScanMode === "brighter-red" ? "default" : "outline"}
+                  onClick={() => updatePointcloud("latestScanMode", "brighter-red")}
+                  className="flex-1"
+                >
+                  Brighter + Red
+                </Button>
+              </ButtonGroup>
             </div>
           </div>
 

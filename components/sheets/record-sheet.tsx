@@ -78,7 +78,7 @@ export function RecordSheet({ open, onOpenChange }: RecordSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
-        <Button variant="ghost"><Circle className={recordingStatus.recording ? "text-destructive": "default"}/></Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8"><Circle className={`h-4 w-4 ${recordingStatus.recording ? "text-destructive": "default"}`}/></Button>
       </SheetTrigger>
       <SheetContent
         className="flex flex-col"

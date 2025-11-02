@@ -1,12 +1,14 @@
 {
   "connection": {
-    "url": "ws://192.168.1.161:8765"
+    "url": "ws://192.168.1.160:8765"
   },
   "pointcloud": {
     "topic": "/cloud_registered",
-    "decayTimeMs": 1000000,
-    "maxPoints": 100000,
-    "pointSize": 1
+    "decayTimeSeconds": 10,
+    "maxPoints": 0,
+    "pointSize": 0.1,
+    "latestScanPointSize": 2.5,
+    "latestScanMode": "brighter-red"
   },
   "camera": {
     "topic": "/usb_cam/image_raw"

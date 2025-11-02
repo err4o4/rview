@@ -43,6 +43,7 @@ export interface RecordsMonitorMessage {
 export interface PointCloudMessage {
   timestamp: number;
   points: Float32Array;
+  colors?: Float32Array; // RGB colors (0-1 range), 3 values per point
 }
 
 export interface RecordingStatusMessage {
@@ -353,17 +354,18 @@ export class TopicManager {
     const uint8Array = new Uint8Array(payload);
     const message = this.pointCloud2Reader.readMessage(uint8Array) as any;
 
-    const points = this.extractXYZFromPointCloud2(message);
+    const { points, colors } = this.extractXYZAndColorsFromPointCloud2(message);
 
-    return { timestamp: timestampNs, points };
+    return { timestamp: timestampNs, points, colors };
   }
 
-  private extractXYZFromPointCloud2(pc2: any): Float32Array {
+  private extractXYZAndColorsFromPointCloud2(pc2: any): { points: Float32Array; colors?: Float32Array } {
     const { fields, is_bigendian, point_step, data } = pc2;
 
     const xf = fields.find((f: any) => f.name === "x");
     const yf = fields.find((f: any) => f.name === "y");
     const zf = fields.find((f: any) => f.name === "z");
+    const intensityf = fields.find((f: any) => f.name === "intensity");
 
     if (!xf || !yf || !zf) {
       throw new Error("PointCloud2: x/y/z fields not found");
@@ -374,24 +376,85 @@ export class TopicManager {
       throw new Error("PointCloud2: expected FLOAT32 for x/y/z");
     }
 
-    if (!point_step || !data?.length) return new Float32Array();
+    if (!point_step || !data?.length) return { points: new Float32Array() };
 
     const littleEndian = !is_bigendian;
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const numPoints = Math.floor(data.byteLength / point_step);
 
-    const out: number[] = [];
+    const points: number[] = [];
+    const intensities: number[] = [];
+    let minIntensity = Infinity;
+    let maxIntensity = -Infinity;
+
     for (let i = 0; i < numPoints; i++) {
       const base = i * point_step;
       const x = view.getFloat32(base + xf.offset, littleEndian);
       const y = view.getFloat32(base + yf.offset, littleEndian);
       const z = view.getFloat32(base + zf.offset, littleEndian);
+
       if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-        out.push(x, y, z);
+        points.push(x, y, z);
+
+        // Extract intensity if available
+        if (intensityf) {
+          let intensity = 0;
+          if (intensityf.datatype === FLOAT32_DATATYPE) {
+            intensity = view.getFloat32(base + intensityf.offset, littleEndian);
+          } else if (intensityf.datatype === 2) { // UINT8
+            intensity = view.getUint8(base + intensityf.offset) / 255.0;
+          } else if (intensityf.datatype === 4) { // UINT16
+            intensity = view.getUint16(base + intensityf.offset, littleEndian) / 65535.0;
+          }
+
+          intensities.push(intensity);
+          minIntensity = Math.min(minIntensity, intensity);
+          maxIntensity = Math.max(maxIntensity, intensity);
+        }
       }
     }
 
-    return new Float32Array(out);
+    // Convert intensities to colors using turbo colormap
+    let colors: Float32Array | undefined;
+    if (intensities.length > 0 && maxIntensity > minIntensity) {
+      const colorArray: number[] = [];
+      for (const intensity of intensities) {
+        // Normalize intensity to 0-1 range
+        const normalized = (intensity - minIntensity) / (maxIntensity - minIntensity);
+        const rgb = this.turboColormap(normalized);
+        colorArray.push(rgb[0], rgb[1], rgb[2]);
+      }
+      colors = new Float32Array(colorArray);
+    }
+
+    return { points: new Float32Array(points), colors };
+  }
+
+  // Turbo colormap implementation with reduced brightness
+  // Based on https://ai.googleblog.com/2019/08/turbo-improved-rainbow-colormap-for.html
+  private turboColormap(t: number): [number, number, number] {
+    t = Math.max(0, Math.min(1, t));
+
+    let r = Math.max(0, Math.min(1,
+      0.13572138 + t * (4.61539260 + t * (-42.66032258 + t * (132.13108234 + t * (-152.94239396 + t * 59.28637943))))
+    ));
+
+    let g = Math.max(0, Math.min(1,
+      0.09140261 + t * (2.19418839 + t * (4.84296658 + t * (-14.18503333 + t * (4.27729857 + t * 2.82956604))))
+    ));
+
+    let b = Math.max(0, Math.min(1,
+      0.10667330 + t * (12.64194608 + t * (-60.58204836 + t * (110.36276771 + t * (-89.90310912 + t * 27.34824973))))
+    ));
+
+    // Reduce brightness by applying tone mapping
+    // Scale down bright colors to make them less intense
+    const brightness = 0.7; // Reduce overall brightness to 70%
+    r *= brightness;
+    g *= brightness;
+    b *= brightness;
+
+    return [r, g, b];
   }
 
   private decodeNodesMessage(payload: ArrayBuffer): NodesMonitorMessage {
