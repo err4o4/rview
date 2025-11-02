@@ -578,32 +578,38 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
             <Collapsible open={recordingOpen} onOpenChange={setRecordingOpen}>
               <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
                 <ChevronDown className={`h-4 w-4 transition-transform ${recordingOpen ? "" : "-rotate-90"}`} />
-                Video Recording Settings
+                Recording Settings
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-3 mt-3">
+                {/* Mode Selector */}
                 <div className="space-y-2">
-                  <Label htmlFor="recording-codec">Codec</Label>
+                  <Label>Recording Mode</Label>
                   <ButtonGroup className="w-full">
                     <Button
                       type="button"
-                      variant={config.recording.codec === "h264" ? "default" : "outline"}
-                      onClick={() => updateRecording("codec", "h264")}
+                      variant={config.recording.mode === "video" ? "default" : "outline"}
+                      onClick={() => updateRecording("mode", "video")}
                       className="flex-1"
                     >
-                      H.264
+                      Video (MP4)
                     </Button>
                     <Button
                       type="button"
-                      variant={config.recording.codec === "vp9" ? "default" : "outline"}
-                      onClick={() => updateRecording("codec", "vp9")}
+                      variant={config.recording.mode === "png-sequence" ? "default" : "outline"}
+                      onClick={() => updateRecording("mode", "png-sequence")}
                       className="flex-1"
                     >
-                      VP9
+                      PNG Sequence
                     </Button>
                   </ButtonGroup>
-                  <p className="text-xs text-muted-foreground">H.264 is faster and smaller, VP9 has better quality/compression</p>
+                  <p className="text-xs text-muted-foreground">
+                    {config.recording.mode === 'video'
+                      ? 'WebCodecs MP4 (GPU-accelerated, instant playback)'
+                      : 'Lossless PNG/JPEG ZIP (CPU workers, requires ffmpeg for video)'}
+                  </p>
                 </div>
 
+                {/* FPS (common to both modes) */}
                 <div className="space-y-2">
                   <Label htmlFor="recording-fps">FPS (Frames Per Second)</Label>
                   <Input
@@ -621,23 +627,99 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                   <p className="text-xs text-muted-foreground">Common values: 15, 24, 30, 60</p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="recording-bitrate">Bitrate (Mbps)</Label>
-                  <Input
-                    id="recording-bitrate"
-                    type="number"
-                    min="1"
-                    max="500"
-                    step="10"
-                    value={config.recording.bitrate}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value)
-                      updateRecording("bitrate", isNaN(value) ? "" : value)
-                    }}
-                    placeholder="100"
-                  />
-                  <p className="text-xs text-muted-foreground">Higher bitrate = better quality, larger file. Recommended: 50-100 Mbps</p>
-                </div>
+                {/* Video mode settings */}
+                {config.recording.mode === 'video' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="recording-codec">Codec</Label>
+                      <ButtonGroup className="w-full">
+                        <Button
+                          type="button"
+                          variant={config.recording.codec === "h264" ? "default" : "outline"}
+                          onClick={() => updateRecording("codec", "h264")}
+                          className="flex-1"
+                        >
+                          H.264
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={config.recording.codec === "vp9" ? "default" : "outline"}
+                          onClick={() => updateRecording("codec", "vp9")}
+                          className="flex-1"
+                        >
+                          VP9
+                        </Button>
+                      </ButtonGroup>
+                      <p className="text-xs text-muted-foreground">H.264 is faster and more compatible, VP9 has better quality/compression</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="recording-bitrate">Bitrate (Mbps)</Label>
+                      <Input
+                        id="recording-bitrate"
+                        type="number"
+                        min="1"
+                        max="500"
+                        step="10"
+                        value={config.recording.bitrate}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value)
+                          updateRecording("bitrate", isNaN(value) ? "" : value)
+                        }}
+                        placeholder="100"
+                      />
+                      <p className="text-xs text-muted-foreground">Higher bitrate = better quality, larger file. Recommended: 50-100 Mbps</p>
+                    </div>
+                  </>
+                )}
+
+                {/* PNG-sequence mode settings */}
+                {config.recording.mode === 'png-sequence' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="recording-format">Format</Label>
+                      <ButtonGroup className="w-full">
+                        <Button
+                          type="button"
+                          variant={config.recording.format === "jpeg" ? "default" : "outline"}
+                          onClick={() => updateRecording("format", "jpeg")}
+                          className="flex-1"
+                        >
+                          JPEG
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={config.recording.format === "png" ? "default" : "outline"}
+                          onClick={() => updateRecording("format", "png")}
+                          className="flex-1"
+                        >
+                          PNG
+                        </Button>
+                      </ButtonGroup>
+                      <p className="text-xs text-muted-foreground">JPEG is faster, PNG is lossless</p>
+                    </div>
+
+                    {config.recording.format === 'jpeg' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="recording-quality">JPEG Quality</Label>
+                        <Input
+                          id="recording-quality"
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={config.recording.quality}
+                          onChange={(e) => {
+                            const value = parseFloat(e.target.value)
+                            updateRecording("quality", isNaN(value) ? "" : value)
+                          }}
+                          placeholder="0.95"
+                        />
+                        <p className="text-xs text-muted-foreground">0.0-1.0 (0.95 recommended for visually lossless)</p>
+                      </div>
+                    )}
+                  </>
+                )}
               </CollapsibleContent>
             </Collapsible>
 

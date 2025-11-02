@@ -1,11 +1,17 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import * as THREE from "three"
-import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from 'mediabunny'
+import { VideoRecorder, type VideoRecorderSettings, type VideoRecorderState } from "../recorders/videoRecorder"
+import { PngRecorder, type PngRecorderSettings, type PngRecorderState } from "../recorders/pngRecorder"
 
 export interface RecordingSettings {
+  mode: 'video' | 'png-sequence'
   fps: number
+  // Video mode settings
   codec: 'h264' | 'vp9'
-  bitrate: number // in Mbps
+  bitrate: number
+  // PNG-sequence mode settings
+  format: 'jpeg' | 'png'
+  quality: number
 }
 
 export interface UsePointCloudRecordingOptions {
@@ -14,12 +20,12 @@ export interface UsePointCloudRecordingOptions {
   settings: RecordingSettings
 }
 
-export type ProcessingPhase = 'finalizing' | null
+export type ProcessingPhase = 'encoding' | 'adding' | 'compressing' | 'finalizing' | null
 
 export interface UsePointCloudRecordingResult {
   isRecording: boolean
   recordedFrameCount: number
-  isPreparingVideo: boolean
+  isProcessing: boolean
   progress: number
   processingPhase: ProcessingPhase
   startRecording: () => void
@@ -28,14 +34,19 @@ export interface UsePointCloudRecordingResult {
 }
 
 /**
- * Custom hook for video recording using WebCodecs API.
- * Records canvas output directly to MP4 using GPU-accelerated encoding.
+ * Custom hook for screen recording with two recorder modes:
  *
- * Supports:
- * - H.264/AVC encoding (smaller files, wider compatibility)
- * - VP9 encoding (better quality/compression ratio)
- * - Configurable bitrate and frame rate
+ * VIDEO MODE (mode: 'video'):
+ * - Uses WebCodecs API for direct MP4 encoding
+ * - GPU-accelerated H.264 or VP9 encoding
  * - Direct MP4 output (no post-processing needed)
+ * - Lower RAM usage, instant playback
+ *
+ * PNG-SEQUENCE MODE (mode: 'png-sequence'):
+ * - Multi-worker parallel encoding to PNG/JPEG
+ * - True lossless PNG or high-quality JPEG
+ * - ZIP output (requires ffmpeg for video conversion)
+ * - Higher quality, more flexible post-processing
  *
  * @param options - Configuration options including canvas/renderer refs and settings
  * @returns Recording state and control functions
@@ -47,194 +58,110 @@ export function usePointCloudRecording({
 }: UsePointCloudRecordingOptions): UsePointCloudRecordingResult {
   const [isRecording, setIsRecording] = useState(false)
   const [recordedFrameCount, setRecordedFrameCount] = useState(0)
-  const [isPreparingVideo, setIsPreparingVideo] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [processingPhase, setProcessingPhase] = useState<ProcessingPhase>(null)
 
-  // Recording refs
-  const recordingAnimationFrameRef = useRef<number | null>(null)
-  const frameCountRef = useRef<number>(0)
-  const lastCaptureTimeRef = useRef<number>(0)
-  const startTimeRef = useRef<number>(0)
+  // Recorder instances
+  const videoRecorderRef = useRef<VideoRecorder | null>(null)
+  const pngRecorderRef = useRef<PngRecorder | null>(null)
 
-  // Video encoder refs (WebCodecs via mediabunny)
-  const videoOutputRef = useRef<Output<Mp4OutputFormat, BufferTarget> | null>(null)
-  const videoSourceRef = useRef<CanvasSource | null>(null)
+  const isVideoMode = settings.mode === 'video'
 
-  const captureIntervalMs = 1000 / settings.fps
+  // State change handler for recorders
+  const handleVideoStateChange = useCallback((state: VideoRecorderState) => {
+    setIsRecording(state.isRecording)
+    setRecordedFrameCount(state.recordedFrameCount)
+    setIsProcessing(state.isProcessing)
+    setProgress(state.progress)
+    setProcessingPhase(state.isProcessing ? 'finalizing' : null)
+  }, [])
+
+  const handlePngStateChange = useCallback((state: PngRecorderState) => {
+    setIsRecording(state.isRecording)
+    setRecordedFrameCount(state.recordedFrameCount)
+    setIsProcessing(state.isProcessing)
+    setProgress(state.progress)
+    setProcessingPhase(state.phase)
+  }, [])
+
+  // Initialize recorders
+  useEffect(() => {
+    if (isVideoMode) {
+      if (!videoRecorderRef.current) {
+        const videoSettings: VideoRecorderSettings = {
+          fps: settings.fps,
+          codec: settings.codec,
+          bitrate: settings.bitrate
+        }
+        videoRecorderRef.current = new VideoRecorder(videoSettings, handleVideoStateChange)
+      } else {
+        videoRecorderRef.current.updateSettings({
+          fps: settings.fps,
+          codec: settings.codec,
+          bitrate: settings.bitrate
+        })
+      }
+    } else {
+      if (!pngRecorderRef.current) {
+        const pngSettings: PngRecorderSettings = {
+          fps: settings.fps,
+          format: settings.format,
+          quality: settings.quality
+        }
+        pngRecorderRef.current = new PngRecorder(pngSettings, handlePngStateChange)
+      } else {
+        pngRecorderRef.current.updateSettings({
+          fps: settings.fps,
+          format: settings.format,
+          quality: settings.quality
+        })
+      }
+    }
+  }, [isVideoMode, settings, handleVideoStateChange, handlePngStateChange])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      videoRecorderRef.current?.cleanup()
+      pngRecorderRef.current?.cleanup()
+    }
+  }, [])
 
   const startRecording = useCallback(async () => {
-    if (!canvasRef.current || !rendererRef.current) return
+    if (!canvasRef.current || !rendererRef.current) {
+      console.error('Canvas or renderer not available')
+      return
+    }
 
     try {
-      // Reset state
-      frameCountRef.current = 0
-      lastCaptureTimeRef.current = performance.now()
-      startTimeRef.current = performance.now()
-      setRecordedFrameCount(0)
-      setIsRecording(true)
-
-      const codecName = settings.codec === 'vp9' ? 'VP9' : 'H.264'
-      const bitrateBps = settings.bitrate * 1_000_000 // Convert Mbps to bps
-
-      console.log(`🎥 Video recording started | FPS: ${settings.fps} | Codec: ${codecName} | Bitrate: ${settings.bitrate}Mbps`)
-
-      // Debug WebCodecs availability
-      console.log('🔍 WebCodecs Debug:')
-      console.log('  - VideoEncoder available:', typeof VideoEncoder !== 'undefined')
-      console.log('  - Secure context:', window.isSecureContext)
-
-      try {
-        // Create MP4 output with BufferTarget (writes to memory)
-        const output = new Output({
-          format: new Mp4OutputFormat(),
-          target: new BufferTarget()
-        })
-
-        // Configure video source based on codec
-        let videoSource: CanvasSource
-        if (settings.codec === 'vp9') {
-          console.log(`📐 Using VP9 encoding | Bitrate: ${settings.bitrate}Mbps`)
-          videoSource = new CanvasSource(canvasRef.current, {
-            codec: 'vp9',
-            bitrate: bitrateBps
-          })
-        } else {
-          console.log(`📐 Using H.264 encoding | Bitrate: ${settings.bitrate}Mbps`)
-          videoSource = new CanvasSource(canvasRef.current, {
-            codec: 'avc', // H.264/AVC
-            bitrate: bitrateBps
-          })
+      if (isVideoMode) {
+        if (!videoRecorderRef.current) {
+          throw new Error('Video recorder not initialized')
         }
-
-        // Add video track to output
-        output.addVideoTrack(videoSource)
-
-        // Start the output
-        await output.start()
-
-        videoOutputRef.current = output
-        videoSourceRef.current = videoSource
-
-        console.log(`✅ WebCodecs initialized | Resolution: ${canvasRef.current.width}x${canvasRef.current.height}`)
-
-        // Capture loop
-        const captureFrame = async () => {
-          if (!canvasRef.current || !videoSourceRef.current) return
-
-          const now = performance.now()
-          const elapsed = now - lastCaptureTimeRef.current
-
-          // Only capture at specified FPS
-          if (elapsed >= captureIntervalMs) {
-            lastCaptureTimeRef.current = now
-            frameCountRef.current++
-
-            try {
-              // Add current canvas state to video (handles encoding internally)
-              const timestamp = (now - startTimeRef.current) / 1000 // seconds
-              const duration = 1 / settings.fps // frame duration in seconds
-
-              await videoSourceRef.current.add(timestamp, duration)
-              setRecordedFrameCount(frameCountRef.current)
-            } catch (err) {
-              console.error('Failed to add frame to video:', err)
-            }
-          }
-
-          // Continue capturing
-          recordingAnimationFrameRef.current = requestAnimationFrame(captureFrame)
+        await videoRecorderRef.current.start(canvasRef.current)
+      } else {
+        if (!pngRecorderRef.current) {
+          throw new Error('PNG recorder not initialized')
         }
-
-        recordingAnimationFrameRef.current = requestAnimationFrame(captureFrame)
-
-      } catch (err) {
-        console.error('Failed to initialize WebCodecs:', err)
-        setIsRecording(false)
-        return
+        await pngRecorderRef.current.start(canvasRef.current)
       }
-
     } catch (err) {
       console.error('Failed to start recording:', err)
-      setIsRecording(false)
     }
-  }, [canvasRef, rendererRef, captureIntervalMs, settings.fps, settings.codec, settings.bitrate])
+  }, [canvasRef, rendererRef, isVideoMode])
 
   const stopRecording = useCallback(async () => {
-    if (recordingAnimationFrameRef.current === null) return
-
-    // Stop capturing new frames
-    cancelAnimationFrame(recordingAnimationFrameRef.current)
-    recordingAnimationFrameRef.current = null
-    setIsRecording(false)
-
-    const totalFrames = frameCountRef.current
-
-    if (totalFrames === 0) {
-      console.warn('No frames captured')
-      return
-    }
-
-    console.log(`\n⏹️  Video recording stopped | Captured: ${totalFrames} frames`)
-
-    if (!videoOutputRef.current || !videoSourceRef.current) {
-      console.error('❌ Video output not initialized')
-      return
-    }
-
     try {
-      setIsPreparingVideo(true)
-      setProcessingPhase('finalizing')
-      setProgress(50)
-
-      console.log('🎬 Finalizing video...')
-
-      // Finalize the video (flushes encoder and writes file footer)
-      await videoOutputRef.current.finalize()
-
-      setProgress(75)
-
-      // Get the MP4 buffer
-      const buffer = videoOutputRef.current.target.buffer
-      if (!buffer) {
-        throw new Error('Video buffer is empty')
+      if (isVideoMode) {
+        await videoRecorderRef.current?.stop()
+      } else {
+        await pngRecorderRef.current?.stop()
       }
-
-      const blob = new Blob([buffer], { type: 'video/mp4' })
-      const sizeMB = (blob.size / (1024 * 1024)).toFixed(2)
-
-      console.log(`✅ Video finalized | Size: ${sizeMB}MB`)
-
-      setProgress(100)
-
-      // Download the MP4 file
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const timestamp = Date.now()
-      const duration = ((performance.now() - startTimeRef.current) / 1000).toFixed(1)
-      const codecName = settings.codec === 'vp9' ? 'VP9' : 'H264'
-      a.download = `pointcloud-${codecName}-${settings.bitrate}mbps-${totalFrames}frames-${duration}s-${timestamp}.mp4`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      console.log(`💾 Downloaded: ${a.download}`)
-      console.log(`\n=== VIDEO RECORDING COMPLETE ===`)
-      console.log(`Codec: ${codecName} | Frames: ${totalFrames} | Duration: ${duration}s | FPS: ${settings.fps} | Bitrate: ${settings.bitrate}Mbps | Size: ${sizeMB}MB`)
-
     } catch (err) {
-      console.error('Failed to finalize video:', err)
-    } finally {
-      // Cleanup
-      videoOutputRef.current = null
-      videoSourceRef.current = null
-      setIsPreparingVideo(false)
-      setProgress(0)
-      setProcessingPhase(null)
+      console.error('Failed to stop recording:', err)
     }
-  }, [settings.fps, settings.codec, settings.bitrate])
+  }, [isVideoMode])
 
   const toggleRecording = useCallback(() => {
     if (isRecording) {
@@ -247,7 +174,7 @@ export function usePointCloudRecording({
   return {
     isRecording,
     recordedFrameCount,
-    isPreparingVideo,
+    isProcessing,
     progress,
     processingPhase,
     startRecording,

@@ -76,8 +76,11 @@
     ]
   },
   "recording": {
+    "mode": "video",
     "fps": 30,
     "codec": "h264",
-    "bitrate": 100
+    "bitrate": 100,
+    "format": "png",
+    "quality": 1.0
   }
 }

@@ -152,9 +152,12 @@ export function PointCloudViewer({ topic }: { topic: string }) {
     canvasRef,
     rendererRef,
     settings: {
+      mode: settings.recording.mode,
       fps: settings.recording.fps,
       codec: settings.recording.codec,
-      bitrate: settings.recording.bitrate
+      bitrate: settings.recording.bitrate,
+      format: settings.recording.format,
+      quality: settings.recording.quality
     }
   })
 
@@ -192,10 +195,12 @@ export function PointCloudViewer({ topic }: { topic: string }) {
       <RecordingIndicators
         isRecording={recording.isRecording}
         recordedFrameCount={recording.recordedFrameCount}
+        mode={settings.recording.mode}
         codec={settings.recording.codec}
         fps={settings.recording.fps}
         bitrate={settings.recording.bitrate}
-        isPreparingVideo={recording.isPreparingVideo}
+        format={settings.recording.format}
+        isProcessing={recording.isProcessing}
         progress={recording.progress}
         processingPhase={recording.processingPhase}
       />

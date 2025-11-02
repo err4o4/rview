@@ -61,9 +61,14 @@ export interface RecorderConfig {
 }
 
 export interface RecordingConfig {
+  mode: "video" | "png-sequence"; // video = WebCodecs MP4, png-sequence = ZIP of PNG/JPEG
   fps: number; // Frame rate (15, 24, 30, 60)
+  // Video mode settings
   codec: "h264" | "vp9"; // H.264/AVC (smaller, faster) or VP9 (better quality)
   bitrate: number; // Bitrate in Mbps (e.g., 10, 50, 100)
+  // PNG-sequence mode settings
+  format: "jpeg" | "png"; // JPEG (fast, lossy) or PNG (slow, lossless)
+  quality: number; // JPEG quality 0.0-1.0 (0.95 recommended), ignored for PNG
 }
 
 export interface AppConfig {
