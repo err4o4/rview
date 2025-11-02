@@ -72,6 +72,14 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     setConfig({ ...config, stats: { ...config.stats, [field]: value } })
   }
 
+  const updateTF = (field: keyof AppConfig["tf"], value: any) => {
+    setConfig({ ...config, tf: { ...config.tf, [field]: value } })
+  }
+
+  const updateTFFollow = (field: keyof AppConfig["tf"]["follow"], value: any) => {
+    setConfig({ ...config, tf: { ...config.tf, follow: { ...config.tf.follow, [field]: value } } })
+  }
+
   const updateNodes = (field: keyof AppConfig["nodes"], value: any) => {
     setConfig({ ...config, nodes: { ...config.nodes, [field]: value } })
   }
@@ -316,6 +324,26 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 onChange={(e) => updateCamera("topic", e.target.value)}
                 placeholder="/camera/image_raw"
               />
+            </div>
+          </div>
+
+          {/* TF Block */}
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="tf-smoothing">TF Follow Smoothing</Label>
+              <Input
+                id="tf-smoothing"
+                type="number"
+                min="0"
+                max="20"
+                step="0.5"
+                value={config.tf.follow.smoothing}
+                onChange={(e) => updateTFFollow("smoothing", parseFloat(e.target.value) || 0)}
+                placeholder="1.5"
+              />
+              <p className="text-xs text-muted-foreground">
+                0 = instant, 1-3 = light, 5-10 = heavy, 15-20 = very heavy
+              </p>
             </div>
           </div>
 

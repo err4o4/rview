@@ -25,7 +25,7 @@
     "arrowWidth": 0.02,
     "follow": {
       "frameId": "body",
-      "smoothing": 0.3
+      "smoothing": 0
     }
   },
   "nodes": {

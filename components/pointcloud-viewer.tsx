@@ -465,118 +465,191 @@ function CameraFollowController({
   const { camera } = useThree()
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
 
-  // Store the initial relative offset and distance when follow mode is first enabled
-  const initialOffsetRef = useRef<THREE.Vector3 | null>(null)
+  // State tracking
   const initialDistanceRef = useRef<number | null>(null)
-  const lastTFPositionRef = useRef<THREE.Vector3 | null>(null)
-  const smoothedTFPositionRef = useRef<THREE.Vector3 | null>(null)
   const lastEnabledRef = useRef<boolean>(false)
   const lastAngleLockRef = useRef<boolean>(false)
+
+  // Smoothing state
+  const smoothedPositionRef = useRef<THREE.Vector3 | null>(null)
+  const smoothedRotationRef = useRef<THREE.Quaternion | null>(null)
+  const lastSmoothedPositionRef = useRef<THREE.Vector3 | null>(null)
+
+  // Moving average buffers for better smoothing
+  const positionHistoryBuffer = useRef<THREE.Vector3[]>([])
+  const rotationHistoryBuffer = useRef<THREE.Quaternion[]>([])
+  const bufferSize = Math.max(2, Math.ceil(smoothing * 10)) // Buffer size based on smoothing factor
+
+  // Helper function to apply coordinate system transformation
+  const transformToWorldSpace = (position: THREE.Vector3) => {
+    const transformed = position.clone()
+    transformed.applyAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+    transformed.applyAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
+    return transformed
+  }
+
+  // Helper function to smooth position using moving average + lerp
+  const smoothPosition = (newPosition: THREE.Vector3): THREE.Vector3 => {
+    // Add to history buffer
+    positionHistoryBuffer.current.push(newPosition.clone())
+    if (positionHistoryBuffer.current.length > bufferSize) {
+      positionHistoryBuffer.current.shift()
+    }
+
+    // Calculate moving average
+    const avgPosition = new THREE.Vector3(0, 0, 0)
+    positionHistoryBuffer.current.forEach((pos: THREE.Vector3) => {
+      avgPosition.add(pos)
+    })
+    avgPosition.divideScalar(positionHistoryBuffer.current.length)
+
+    // Apply lerp smoothing on top of moving average
+    // Higher smoothing = lower alpha = smoother movement
+    const alpha = Math.max(0.01, Math.min(0.3, 0.3 / (smoothing + 1)))
+    if (smoothedPositionRef.current) {
+      smoothedPositionRef.current.lerp(avgPosition, alpha)
+    } else {
+      smoothedPositionRef.current = avgPosition.clone()
+    }
+
+    return smoothedPositionRef.current
+  }
+
+  // Helper function to smooth rotation using moving average + slerp
+  const smoothRotation = (newRotation: THREE.Quaternion): THREE.Quaternion => {
+    // Add to history buffer
+    rotationHistoryBuffer.current.push(newRotation.clone())
+    if (rotationHistoryBuffer.current.length > bufferSize) {
+      rotationHistoryBuffer.current.shift()
+    }
+
+    // Calculate average quaternion (simplified - just use latest for slerp)
+    const avgRotation = rotationHistoryBuffer.current[rotationHistoryBuffer.current.length - 1]
+
+    // Apply slerp smoothing
+    // Higher smoothing = lower alpha = smoother rotation
+    const alpha = Math.max(0.01, Math.min(0.3, 0.3 / (smoothing + 1)))
+    if (smoothedRotationRef.current) {
+      smoothedRotationRef.current.slerp(avgRotation, alpha)
+    } else {
+      smoothedRotationRef.current = avgRotation.clone()
+    }
+
+    return smoothedRotationRef.current
+  }
 
   useFrame(() => {
     if (!controlsRef.current) return
 
-    // Only process TF follow if enabled and position available
     if (enabled && followPosition) {
-      // Apply rotation adjustment for coordinate system (same as point cloud)
-      const adjustedTFPosition = followPosition.clone()
-      adjustedTFPosition.applyAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
-      adjustedTFPosition.applyAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
+      // Transform TF position to world space
+      const transformedPosition = transformToWorldSpace(followPosition)
 
-      // When follow is first enabled, capture the initial state
+      // Initialize on first frame
       if (!lastEnabledRef.current) {
-        // Calculate offset from current orbit target to TF position
-        initialOffsetRef.current = controlsRef.current.target.clone().sub(adjustedTFPosition)
-
-        // Calculate and store the initial distance from camera to target
+        smoothedPositionRef.current = transformedPosition.clone()
+        lastSmoothedPositionRef.current = transformedPosition.clone()
+        positionHistoryBuffer.current = [transformedPosition.clone()]
         initialDistanceRef.current = camera.position.distanceTo(controlsRef.current.target)
 
-        lastTFPositionRef.current = adjustedTFPosition.clone()
-        smoothedTFPositionRef.current = adjustedTFPosition.clone()
+        if (followRotation) {
+          const transformedRotation = followRotation.clone()
+          transformedRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2))
+          transformedRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI))
+          smoothedRotationRef.current = transformedRotation.clone()
+          rotationHistoryBuffer.current = [transformedRotation.clone()]
+        }
+
         lastEnabledRef.current = true
       }
 
-      // If following is enabled, update the orbit target and camera to follow TF
-      if (initialOffsetRef.current && lastTFPositionRef.current && smoothedTFPositionRef.current) {
-        // Smoothly interpolate towards the new TF position
-        // Higher smoothing value = smoother but slower follow (0 = instant, 1 = very slow)
-        const alpha = 1 - smoothing
-        smoothedTFPositionRef.current.lerp(adjustedTFPosition, alpha)
+      // Smooth the TF position (or use raw if smoothing=0)
+      let smoothedPos: THREE.Vector3
+      if (smoothing === 0) {
+        // No smoothing - use raw position and clear buffers
+        smoothedPos = transformedPosition
+        smoothedPositionRef.current = transformedPosition.clone()
+        positionHistoryBuffer.current = []
+        rotationHistoryBuffer.current = []
+      } else {
+        smoothedPos = smoothPosition(transformedPosition)
+      }
 
-        // Calculate how much the smoothed TF has moved
-        const tfDelta = smoothedTFPositionRef.current.clone().sub(lastTFPositionRef.current)
+      // Calculate position delta for camera movement
+      const positionDelta = smoothedPos.clone().sub(lastSmoothedPositionRef.current!)
 
-        // Move both the camera and target by the same delta to maintain relative position
-        camera.position.add(tfDelta)
-        controlsRef.current.target.add(tfDelta)
+      if (lockAngle && followRotation) {
+        // FOLLOW + LOCK MODE: Camera locked to TF orientation
 
-        // Handle angle locking
-        if (lockAngle && followRotation) {
-          // When angle lock is first enabled, capture current distance
-          if (!lastAngleLockRef.current) {
-            initialDistanceRef.current = camera.position.distanceTo(controlsRef.current.target)
-          }
-
-          // Apply the same rotation adjustment as for position
-          const adjustedTFRotation = followRotation.clone()
-          const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
-          const rotZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)
-          adjustedTFRotation.premultiply(rotX)
-          adjustedTFRotation.premultiply(rotZ)
-
-          // Calculate direction vector from TF's X-axis (red arrow)
-          const tfForward = new THREE.Vector3(1, 0, 0).applyQuaternion(adjustedTFRotation)
-
-          // Use current distance to allow zooming
-          const currentDistance = camera.position.distanceTo(controlsRef.current.target)
-
-          // Check if user has zoomed (distance changed)
-          if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
-            // User has zoomed, update the stored distance
-            initialDistanceRef.current = currentDistance
-          }
-
-          // Force target to be at TF position (center on TF)
-          controlsRef.current.target.copy(smoothedTFPositionRef.current)
-
-          // Position camera behind the TF at the current distance, looking in the direction of red arrow
-          const distance = currentDistance
-          const cameraOffset = tfForward.clone().multiplyScalar(-distance)
-
-          // Set camera position directly behind red arrow
-          camera.position.copy(smoothedTFPositionRef.current.clone().add(cameraOffset))
-
-          // Make camera look at the target (TF center)
-          camera.lookAt(controlsRef.current.target)
-        } else {
-          // Check if user has changed the distance (zoomed in/out) - only when not angle locked
-          const currentDistance = camera.position.distanceTo(controlsRef.current.target)
-          if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
-            // User has zoomed, update the stored distance
-            initialDistanceRef.current = currentDistance
-          }
+        // Capture initial distance when lock is first enabled
+        if (!lastAngleLockRef.current) {
+          initialDistanceRef.current = camera.position.distanceTo(controlsRef.current.target)
+          lastAngleLockRef.current = true
         }
 
-        // Update last position to the smoothed position
-        lastTFPositionRef.current.copy(smoothedTFPositionRef.current)
+        // Transform rotation
+        const transformedRotation = followRotation.clone()
+        transformedRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2))
+        transformedRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI))
 
-        // Update controls
-        controlsRef.current.update()
+        // Smooth rotation (or use raw if smoothing=0)
+        let smoothedRot: THREE.Quaternion
+        if (smoothing === 0) {
+          // No smoothing - use raw rotation
+          smoothedRot = transformedRotation
+          smoothedRotationRef.current = transformedRotation.clone()
+        } else {
+          smoothedRot = smoothRotation(transformedRotation)
+        }
+
+        // Get forward direction from smoothed rotation
+        const tfForward = new THREE.Vector3(1, 0, 0).applyQuaternion(smoothedRot)
+
+        // Update distance if user zoomed
+        const currentDistance = camera.position.distanceTo(controlsRef.current.target)
+        if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
+          initialDistanceRef.current = currentDistance
+        }
+
+        // Position camera behind TF using smoothed values
+        controlsRef.current.target.copy(smoothedPos)
+        const cameraOffset = tfForward.clone().multiplyScalar(-initialDistanceRef.current!)
+        camera.position.copy(smoothedPos.clone().add(cameraOffset))
+        camera.lookAt(controlsRef.current.target)
+
+      } else {
+        // FOLLOW ONLY MODE: Camera maintains relative position
+
+        // Move both camera and target by the same delta
+        camera.position.add(positionDelta)
+        controlsRef.current.target.add(positionDelta)
+
+        // Track zoom changes
+        const currentDistance = camera.position.distanceTo(controlsRef.current.target)
+        if (initialDistanceRef.current !== null && Math.abs(currentDistance - initialDistanceRef.current) > 0.01) {
+          initialDistanceRef.current = currentDistance
+        }
+
+        // Reset angle lock state
+        lastAngleLockRef.current = false
       }
-    } else if (lastEnabledRef.current) {
-      // When follow is disabled, clear the stored state
-      initialOffsetRef.current = null
-      initialDistanceRef.current = null
-      lastTFPositionRef.current = null
-      smoothedTFPositionRef.current = null
-      lastEnabledRef.current = false
-    }
 
-    // Reset angle lock tracking when disabled
-    if (!lockAngle) {
+      // Update last smoothed position
+      lastSmoothedPositionRef.current!.copy(smoothedPos)
+
+      // Update controls
+      controlsRef.current.update()
+
+    } else if (lastEnabledRef.current) {
+      // Reset all state when follow is disabled
+      smoothedPositionRef.current = null
+      smoothedRotationRef.current = null
+      lastSmoothedPositionRef.current = null
+      positionHistoryBuffer.current = []
+      rotationHistoryBuffer.current = []
+      initialDistanceRef.current = null
+      lastEnabledRef.current = false
       lastAngleLockRef.current = false
-    } else {
-      lastAngleLockRef.current = true
     }
   })
 
