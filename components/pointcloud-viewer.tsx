@@ -141,6 +141,7 @@ export function PointCloudViewer({ topic }: { topic: string }) {
   const [cameraAngleLockEnabled, setCameraAngleLockEnabled] = useState(false)
   const [tfVisible, setTfVisible] = useState(true)
   const [latestScanHighlightEnabled, setLatestScanHighlightEnabled] = useState(true)
+  const [showModelInsteadOfArrows, setShowModelInsteadOfArrows] = useState(false)
 
   // Refs for Canvas and renderer (needed for recording)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -190,6 +191,8 @@ export function PointCloudViewer({ topic }: { topic: string }) {
         onRecordingToggle={recording.toggleRecording}
         recordingCodec={settings.recording.codec}
         recordingFps={settings.recording.fps}
+        showModel={showModelInsteadOfArrows}
+        onModelToggle={() => setShowModelInsteadOfArrows(prev => !prev)}
       />
 
       {/* Recording Indicators */}
@@ -285,6 +288,7 @@ export function PointCloudViewer({ topic }: { topic: string }) {
               ? onFollowTransformUpdate
               : undefined
           }
+          showModel={showModelInsteadOfArrows}
         />
 
         {/* Point Cloud */}

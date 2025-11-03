@@ -1,4 +1,4 @@
-import { Navigation, Lock, Eye, EyeOff, Palette, RotateCcw, Video, Circle as RecordCircle } from "lucide-react"
+import { Navigation, Lock, Eye, EyeOff, Palette, RotateCcw, Video, Circle as RecordCircle, Box } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export interface PointCloudControlsProps {
@@ -16,6 +16,8 @@ export interface PointCloudControlsProps {
   onRecordingToggle: () => void
   recordingCodec: 'h264' | 'vp9'
   recordingFps: number
+  showModel: boolean
+  onModelToggle: () => void
 }
 
 /**
@@ -35,7 +37,9 @@ export function PointCloudControls({
   isRecording,
   onRecordingToggle,
   recordingCodec,
-  recordingFps
+  recordingFps,
+  showModel,
+  onModelToggle
 }: PointCloudControlsProps) {
   const codecLabel = recordingCodec === 'vp9' ? 'VP9' : 'H.264'
   return (
@@ -78,6 +82,19 @@ export function PointCloudControls({
         }`}
       >
         {tfVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onModelToggle}
+        title={showModel ? "Show TF arrows" : "Show 3D model"}
+        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
+          showModel
+            ? "text-purple-500 border-purple-500"
+            : "text-muted-foreground"
+        }`}
+      >
+        <Box className="h-4 w-4" />
       </Button>
       <Button
         variant="ghost"

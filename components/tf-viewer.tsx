@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import { useRosTopic } from "@/lib/hooks/useRosTopic"
 import { MessageType, type TFMessage, type TransformStamped } from "@/lib/services/unifiedWebSocket"
 import { useSettings } from "@/lib/hooks/useSettings"
 import * as THREE from "three"
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 
 interface TFViewerProps {
   topic: string
@@ -12,10 +13,11 @@ interface TFViewerProps {
   visible?: boolean
   followFrameId?: string
   onFollowTransformUpdate?: (position: THREE.Vector3, rotation: THREE.Quaternion) => void
+  showModel?: boolean
 }
 
 /**
- * Component to visualize TF transforms as coordinate frames (XYZ arrows)
+ * Component to visualize TF transforms as coordinate frames (XYZ arrows) or GLB models
  * X = Red, Y = Green, Z = Blue (standard ROS visualization convention)
  */
 export function TFViewer({
@@ -23,13 +25,36 @@ export function TFViewer({
   enabled = true,
   visible = true,
   followFrameId,
-  onFollowTransformUpdate
+  onFollowTransformUpdate,
+  showModel = false,
 }: TFViewerProps) {
   const groupRef = useRef<THREE.Group>(null)
   const transformsMapRef = useRef<Map<string, THREE.Group>>(new Map())
   const { settings } = useSettings()
   const arrowLength = settings.tf.arrowLength
   const arrowWidth = settings.tf.arrowWidth
+  const [modelTemplate, setModelTemplate] = useState<THREE.Group | null>(null)
+  const [modelLoading, setModelLoading] = useState(false)
+
+  // Load GLB model
+  useEffect(() => {
+    if (!showModel || modelTemplate || modelLoading) return
+
+    setModelLoading(true)
+    const loader = new GLTFLoader()
+    loader.load(
+      '/wheatley.glb',
+      (gltf) => {
+        setModelTemplate(gltf.scene)
+        setModelLoading(false)
+      },
+      undefined,
+      (error) => {
+        console.error('Error loading GLB model:', error)
+        setModelLoading(false)
+      }
+    )
+  }, [showModel, modelTemplate, modelLoading])
 
   // Subscribe to TF topic
   const handleMessage = useCallback((message: TFMessage) => {
@@ -43,7 +68,7 @@ export function TFViewer({
       let frameGroup = transformsMapRef.current.get(frameId)
 
       if (!frameGroup) {
-        frameGroup = createCoordinateFrame(arrowLength, arrowWidth)
+        frameGroup = createCoordinateFrame(arrowLength, arrowWidth, showModel, modelTemplate)
         transformsMapRef.current.set(frameId, frameGroup)
         groupRef.current!.add(frameGroup)
       }
@@ -67,7 +92,18 @@ export function TFViewer({
         onFollowTransformUpdate(position, rotation)
       }
     })
-  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate])
+  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate, showModel, modelTemplate])
+
+  // Effect to recreate all frames when toggling between arrows and models
+  useEffect(() => {
+    if (!groupRef.current) return
+
+    // Clear all existing frames and recreate them
+    transformsMapRef.current.forEach((frameGroup) => {
+      groupRef.current?.remove(frameGroup)
+    })
+    transformsMapRef.current.clear()
+  }, [showModel, modelTemplate])
 
   useRosTopic<TFMessage>({
     topic,
@@ -99,41 +135,57 @@ export function TFViewer({
 }
 
 /**
- * Creates a coordinate frame visualization with XYZ arrows
+ * Creates a coordinate frame visualization with XYZ arrows or GLB model
  */
-function createCoordinateFrame(length: number, width: number): THREE.Group {
+function createCoordinateFrame(
+  length: number,
+  width: number,
+  showModel: boolean,
+  modelTemplate: THREE.Group | null,
+): THREE.Group {
   const group = new THREE.Group()
 
-  // Create arrows for X, Y, Z axes
-  // X axis - Red
-  const xArrow = createArrow(
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(1, 0, 0),
-    length,
-    0xff0000, // red
-    width
-  )
-  group.add(xArrow)
+  if (showModel && modelTemplate) {
+    // Clone the model template and add it to the group
+    const modelClone = modelTemplate.clone()
+    modelClone.scale.set(0.3, 0.3, 0.3)
+    // Rotate 90 degrees around X axis
+    //modelClone.rotation.x = Math.PI / 2
+    modelClone.rotation.y = Math.PI / 2
+    //modelClone.rotation.z = Math.PI
+    group.add(modelClone)
+  } else {
+    // Create arrows for X, Y, Z axes
+    // X axis - Red
+    const xArrow = createArrow(
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(1, 0, 0),
+      length,
+      0xff0000, // red
+      width
+    )
+    group.add(xArrow)
 
-  // Y axis - Green
-  const yArrow = createArrow(
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 1, 0),
-    length,
-    0x00ff00, // green
-    width
-  )
-  group.add(yArrow)
+    // Y axis - Green
+    const yArrow = createArrow(
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 1, 0),
+      length,
+      0x00ff00, // green
+      width
+    )
+    group.add(yArrow)
 
-  // Z axis - Blue
-  const zArrow = createArrow(
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0, 1),
-    length,
-    0x0000ff, // blue
-    width
-  )
-  group.add(zArrow)
+    // Z axis - Blue
+    const zArrow = createArrow(
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, 1),
+      length,
+      0x0000ff, // blue
+      width
+    )
+    group.add(zArrow)
+  }
 
   return group
 }
