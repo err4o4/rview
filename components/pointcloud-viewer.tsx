@@ -58,7 +58,7 @@ function PointCloud({
   const dynamicLatestPointScaling = settings.pointcloud.dynamicLatestPointScaling
 
   // Use extracted hooks for frame management
-  const { frames, connected, error } = usePointCloudFrames({
+  const { frames } = usePointCloudFrames({
     topic,
     decayTimeMs,
     clearTrigger,
@@ -75,6 +75,7 @@ function PointCloud({
     maxPoints,
     latestScanHighlight,
     latestScanMode,
+    clearTrigger,
     onPointCountChange
   })
 

@@ -61,15 +61,7 @@ export class VideoRecorder {
     this.lastCaptureTime = performance.now()
     this.startTime = performance.now()
 
-    const codecName = this.settings.codec === 'vp9' ? 'VP9' : 'H.264'
     const bitrateBps = this.settings.bitrate * 1_000_000
-
-    console.log(`🎥 Video recording started | FPS: ${this.settings.fps} | Codec: ${codecName} | Bitrate: ${this.settings.bitrate}Mbps`)
-
-    // Debug WebCodecs availability
-    console.log('🔍 WebCodecs Debug:')
-    console.log('  - VideoEncoder available:', typeof VideoEncoder !== 'undefined')
-    console.log('  - Secure context:', window.isSecureContext)
 
     // Create MP4 output
     const output = new Output({
@@ -80,13 +72,11 @@ export class VideoRecorder {
     // Configure video source based on codec
     let videoSource: CanvasSource
     if (this.settings.codec === 'vp9') {
-      console.log(`📐 Using VP9 encoding | Bitrate: ${this.settings.bitrate}Mbps`)
       videoSource = new CanvasSource(canvas, {
         codec: 'vp9',
         bitrate: bitrateBps
       })
     } else {
-      console.log(`📐 Using H.264 encoding | Bitrate: ${this.settings.bitrate}Mbps`)
       videoSource = new CanvasSource(canvas, {
         codec: 'avc',
         bitrate: bitrateBps
@@ -98,8 +88,6 @@ export class VideoRecorder {
 
     this.videoOutput = output
     this.videoSource = videoSource
-
-    console.log(`✅ WebCodecs initialized | Resolution: ${canvas.width}x${canvas.height}`)
 
     // Start capture loop
     this.updateState({ isRecording: true })
@@ -133,7 +121,6 @@ export class VideoRecorder {
 
   async stop(): Promise<void> {
     if (this.animationFrameId === null) {
-      console.warn('No recording in progress')
       return
     }
 
@@ -144,23 +131,18 @@ export class VideoRecorder {
     const totalFrames = this.frameCount
 
     if (totalFrames === 0) {
-      console.warn('No frames captured')
       this.updateState({ isRecording: false })
       return
     }
 
-    console.log(`\n⏹️  Video recording stopped | Captured: ${totalFrames} frames`)
-
     if (!this.videoOutput || !this.videoSource) {
-      console.error('❌ Video output not initialized')
+      console.error('Video output not initialized')
       this.updateState({ isRecording: false })
       return
     }
 
     try {
       this.updateState({ isRecording: false, isProcessing: true, progress: 50 })
-
-      console.log('🎬 Finalizing video...')
 
       // Finalize video
       await this.videoOutput.finalize()
@@ -174,9 +156,6 @@ export class VideoRecorder {
       }
 
       const blob = new Blob([buffer], { type: 'video/mp4' })
-      const sizeMB = (blob.size / (1024 * 1024)).toFixed(2)
-
-      console.log(`✅ Video finalized | Size: ${sizeMB}MB`)
 
       this.updateState({ progress: 100 })
 
@@ -192,11 +171,6 @@ export class VideoRecorder {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-
-      console.log(`💾 Downloaded: ${a.download}`)
-      console.log(`\n=== VIDEO RECORDING COMPLETE ===`)
-      console.log(`Codec: ${codecName} | Frames: ${totalFrames} | Duration: ${duration}s | FPS: ${this.settings.fps} | Bitrate: ${this.settings.bitrate}Mbps | Size: ${sizeMB}MB`)
-
     } catch (err) {
       console.error('Failed to finalize video:', err)
     } finally {

@@ -171,6 +171,7 @@ export class PngRecorder {
         `📊 Status: Total=${totalCaptured} | In RAM=${inRAM} (${ramUsageMB.toFixed(0)}MB) | Encoding=${inFlight} | Encoded=${encoded}`
       )
     }, 1000)
+    
 
     this.updateState({ isRecording: true })
     this.captureLoop()
@@ -191,10 +192,6 @@ export class PngRecorder {
       try {
         const imageBitmap = await createImageBitmap(this.canvasRef)
 
-        if (frameIndex === 0) {
-          this.frameSizeMB = (imageBitmap.width * imageBitmap.height * 4) / (1024 * 1024)
-        }
-
         this.pendingFrames.push({
           index: frameIndex,
           imageBitmap
@@ -212,23 +209,16 @@ export class PngRecorder {
 
   async stop(): Promise<void> {
     if (this.animationFrameId === null) {
-      console.warn('No recording in progress')
       return
     }
 
-    // Stop capture loop and status logging
+    // Stop capture loop
     cancelAnimationFrame(this.animationFrameId)
     this.animationFrameId = null
-
-    if (this.statusLogInterval) {
-      clearInterval(this.statusLogInterval)
-      this.statusLogInterval = null
-    }
 
     const totalFrames = this.frameCount
 
     if (totalFrames === 0) {
-      console.warn('No frames captured')
       this.updateState({ isRecording: false })
       return
     }
@@ -247,80 +237,120 @@ export class PngRecorder {
       const encodedSoFar = totalFrames - currentRemaining
       const progress = Math.floor((encodedSoFar / totalFrames) * 40)
       this.updateState({ progress })
-
-      if (currentRemaining !== remaining) {
-        console.log(`⏳ Remaining: ${currentRemaining} | Encoded: ${encodedSoFar}/${totalFrames}`)
-      }
     }
 
     console.log(`✅ All frames encoded | Total: ${totalFrames}`)
 
-    // Phase 2: Create ZIP file
+    // Calculate total size and determine chunking strategy
+    let totalSizeMB = 0
+    for (const blob of this.encodedBlobs) {
+      if (blob) totalSizeMB += blob.size / (1024 * 1024)
+    }
+
+    console.log(`📊 Total frame data: ${totalSizeMB.toFixed(0)}MB across ${totalFrames} frames`)
+
+    // Split into chunks of max 500MB to avoid memory issues
+    const MAX_CHUNK_SIZE_MB = 1500
+    const avgFrameSizeMB = totalSizeMB / totalFrames
+    const framesPerChunk = Math.floor(MAX_CHUNK_SIZE_MB / avgFrameSizeMB)
+    const needsChunking = totalSizeMB > MAX_CHUNK_SIZE_MB
+    const numChunks = needsChunking ? Math.ceil(totalFrames / framesPerChunk) : 1
+
+    if (needsChunking) {
+      console.log(`📦 Splitting into ${numChunks} ZIP files (${framesPerChunk} frames each, ~${MAX_CHUNK_SIZE_MB}MB per file)`)
+    }
+
+    // Phase 2: Create ZIP file(s)
     this.updateState({ progress: 40, phase: 'compressing' })
 
     try {
-      const zip = new JSZip()
-      const folder = zip.folder('frames')
-      if (!folder) throw new Error('Failed to create ZIP folder')
-
-      console.log(`📦 Creating ZIP with ${totalFrames} frames...`)
-
       const extension = this.settings.format === 'jpeg' ? 'jpg' : 'png'
       const padLength = totalFrames.toString().length
+      const timestamp = Date.now()
+      const duration = ((performance.now() - this.startTime) / 1000).toFixed(1)
 
-      for (let i = 0; i < totalFrames; i++) {
-        const blob = this.encodedBlobs[i]
-        if (!blob) {
-          console.warn(`⚠️  Missing frame ${i}, skipping`)
-          continue
+      for (let chunkIndex = 0; chunkIndex < numChunks; chunkIndex++) {
+        const startFrame = chunkIndex * framesPerChunk
+        const endFrame = Math.min(startFrame + framesPerChunk, totalFrames)
+        const framesInChunk = endFrame - startFrame
+
+        console.log(`📦 Creating ZIP ${chunkIndex + 1}/${numChunks} with frames ${startFrame}-${endFrame - 1} (${framesInChunk} frames)...`)
+
+        const zip = new JSZip()
+        const folder = zip.folder('frames')
+        if (!folder) throw new Error('Failed to create ZIP folder')
+
+        // Add frames to this chunk
+        for (let i = startFrame; i < endFrame; i++) {
+          const blob = this.encodedBlobs[i]
+          if (!blob) {
+            console.warn(`⚠️  Missing frame ${i}, skipping`)
+            continue
+          }
+
+          const paddedIndex = i.toString().padStart(padLength, '0')
+          folder.file(`frame_${paddedIndex}.${extension}`, blob)
+
+          const totalProgress = 40 + Math.floor(((i + 1) / totalFrames) * 30)
+          this.updateState({ progress: totalProgress })
+
+          if ((i + 1) % 100 === 0 || i === endFrame - 1) {
+            console.log(`📦 Added ${i + 1 - startFrame}/${framesInChunk} frames to ZIP ${chunkIndex + 1}`)
+          }
         }
 
-        const paddedIndex = i.toString().padStart(padLength, '0')
-        folder.file(`frame_${paddedIndex}.${extension}`, blob)
+        console.log(`🗜️  Compressing ZIP ${chunkIndex + 1}/${numChunks}...`)
 
-        if ((i + 1) % 100 === 0 || i === totalFrames - 1) {
-          const progress = 40 + Math.floor(((i + 1) / totalFrames) * 30)
-          this.updateState({ progress })
-          console.log(`📦 Added ${i + 1}/${totalFrames} frames to ZIP`)
+        const zipBlob = await zip.generateAsync(
+          { type: 'blob', compression: 'STORE' },
+          (metadata) => {
+            const progressPerChunk = 30 / numChunks
+            const baseProgress = 70 + (chunkIndex * progressPerChunk)
+            const withinChunkProgress = (metadata.percent / 100) * progressPerChunk
+            this.updateState({ progress: Math.floor(baseProgress + withinChunkProgress) })
+          }
+        )
+
+        const sizeMB = (zipBlob.size / (1024 * 1024)).toFixed(2)
+        console.log(`✅ ZIP ${chunkIndex + 1}/${numChunks} created | Size: ${sizeMB}MB`)
+
+        // Download this chunk
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement('a')
+        a.href = url
+
+        if (numChunks > 1) {
+          a.download = `pointcloud-${this.settings.format}-part${chunkIndex + 1}of${numChunks}-frames${startFrame}-${endFrame - 1}-${duration}s-${timestamp}.zip`
+        } else {
+          a.download = `pointcloud-${this.settings.format}-${totalFrames}frames-${duration}s-${timestamp}.zip`
+        }
+
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+
+        console.log(`💾 Downloaded: ${a.download}`)
+
+        // Clear this chunk's blobs from memory
+        for (let i = startFrame; i < endFrame; i++) {
+          this.encodedBlobs[i] = null
         }
       }
 
-      this.updateState({ progress: 70, phase: 'compressing' })
-
-      console.log(`🗜️  Compressing ZIP file...`)
-
-      const zipBlob = await zip.generateAsync(
-        { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
-        (metadata) => {
-          const progress = 70 + Math.floor(metadata.percent * 0.3)
-          this.updateState({ progress })
-        }
-      )
-
       this.updateState({ progress: 100 })
 
-      const sizeMB = (zipBlob.size / (1024 * 1024)).toFixed(2)
-      console.log(`✅ ZIP file created | Size: ${sizeMB}MB`)
-
-      // Download ZIP
-      const url = URL.createObjectURL(zipBlob)
-      const a = document.createElement('a')
-      a.href = url
-      const timestamp = Date.now()
-      const duration = ((performance.now() - this.startTime) / 1000).toFixed(1)
-      a.download = `pointcloud-${this.settings.format}-${totalFrames}frames-${duration}s-${timestamp}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      console.log(`💾 Downloaded: ${a.download}`)
       console.log(`\n=== RECORDING COMPLETE ===`)
-      console.log(`Format: ${this.settings.format.toUpperCase()} | Frames: ${totalFrames} | Duration: ${duration}s | FPS: ${this.settings.fps} | Size: ${sizeMB}MB`)
-
+      console.log(`Format: ${this.settings.format.toUpperCase()} | Frames: ${totalFrames} | Duration: ${duration}s | FPS: ${this.settings.fps} | Size: ${totalSizeMB.toFixed(0)}MB | Files: ${numChunks}`)
     } catch (err) {
       console.error('Failed to create ZIP:', err)
     } finally {
+      // Stop status logging
+      if (this.statusLogInterval) {
+        clearInterval(this.statusLogInterval)
+        this.statusLogInterval = null
+      }
+
       // Cleanup
       this.pendingFrames = []
       this.encodedBlobs = []
