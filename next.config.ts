@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Uncomment the line below to enable static export for web servers
-  output: "export",
+  // Use standalone output for minimal Docker production builds
+  output: "standalone",
 };
 
 export default withPWA({
