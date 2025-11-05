@@ -37,9 +37,10 @@ export interface TFConfig {
   enabled: boolean;
   arrowLength: number; // Length of coordinate frame arrows
   arrowWidth: number; // Width of coordinate frame arrows
+  smoothing: number; // TF Smoothing (0 = instant, higher = smoother but slower)
   follow: {
     frameId: string; // Which TF frame to follow (e.g., "base_link")
-    smoothing: number; // Camera follow smoothing factor (0-1, higher = smoother but slower)
+    smoothing: number; // Camera follow smoothing factor (0 = instant, higher = smoother but slower)
   };
 }
 

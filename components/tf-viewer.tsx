@@ -1,11 +1,13 @@
 "use client"
 
 import { useEffect, useRef, useCallback, useState } from "react"
+import { useFrame } from "@react-three/fiber"
 import { useRosTopic } from "@/lib/hooks/useRosTopic"
 import { MessageType, type TFMessage, type TransformStamped } from "@/lib/services/unifiedWebSocket"
 import { useSettings } from "@/lib/hooks/useSettings"
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
+import { createPositionSmoother, createRotationSmoother } from "./pointcloud-viewer/utils/smoothing"
 
 interface TFViewerProps {
   topic: string
@@ -20,6 +22,14 @@ interface TFViewerProps {
  * Component to visualize TF transforms as coordinate frames (XYZ arrows) or GLB models
  * X = Red, Y = Green, Z = Blue (standard ROS visualization convention)
  */
+interface FrameTransform {
+  group: THREE.Group
+  targetPosition: THREE.Vector3
+  targetQuaternion: THREE.Quaternion
+  positionSmootherRef: { current: ReturnType<typeof createPositionSmoother> }
+  rotationSmootherRef: { current: ReturnType<typeof createRotationSmoother> }
+}
+
 export function TFViewer({
   topic,
   enabled = true,
@@ -29,12 +39,26 @@ export function TFViewer({
   showModel = false,
 }: TFViewerProps) {
   const groupRef = useRef<THREE.Group>(null)
-  const transformsMapRef = useRef<Map<string, THREE.Group>>(new Map())
+  const transformsMapRef = useRef<Map<string, FrameTransform>>(new Map())
   const { settings } = useSettings()
   const arrowLength = settings.tf.arrowLength
   const arrowWidth = settings.tf.arrowWidth
   const [modelTemplate, setModelTemplate] = useState<THREE.Group | null>(null)
   const [modelLoading, setModelLoading] = useState(false)
+
+  // TF Smoothing factor (separate from camera smoothing)
+  // 0 = no smoothing (instant), higher values = more smoothing but more delay
+  // Recommended: 0 (instant), 5-10 (light), 20-30 (medium), 50+ (heavy)
+  const smoothingValue = settings.tf.smoothing || 0
+
+  // Use refs to track current showModel and modelTemplate without causing callback recreation
+  const showModelRef = useRef(showModel)
+  const modelTemplateRef = useRef(modelTemplate)
+
+  useEffect(() => {
+    showModelRef.current = showModel
+    modelTemplateRef.current = modelTemplate
+  }, [showModel, modelTemplate])
 
   // Load GLB model
   useEffect(() => {
@@ -65,45 +89,119 @@ export function TFViewer({
       const frameId = tf.child_frame_id
 
       // Get or create coordinate frame group for this transform
-      let frameGroup = transformsMapRef.current.get(frameId)
+      let frameTransform = transformsMapRef.current.get(frameId)
 
-      if (!frameGroup) {
-        frameGroup = createCoordinateFrame(arrowLength, arrowWidth, showModel, modelTemplate)
-        transformsMapRef.current.set(frameId, frameGroup)
-        groupRef.current!.add(frameGroup)
-      }
-
-      // Update transform
-      updateFrameTransform(frameGroup, tf)
-
-      // If this is the frame we're following, notify parent
-      if (followFrameId && frameId === followFrameId && onFollowTransformUpdate) {
-        const position = new THREE.Vector3(
+      if (!frameTransform) {
+        const group = createCoordinateFrame(arrowLength, arrowWidth, showModelRef.current, modelTemplateRef.current)
+        const targetPosition = new THREE.Vector3(
           tf.transform.translation.x,
           tf.transform.translation.y,
           tf.transform.translation.z
         )
-        const rotation = new THREE.Quaternion(
+        const targetQuaternion = new THREE.Quaternion(
           tf.transform.rotation.x,
           tf.transform.rotation.y,
           tf.transform.rotation.z,
           tf.transform.rotation.w
         )
-        onFollowTransformUpdate(position, rotation)
+
+        // Create smoothers with refs (same as CameraFollowController)
+        const positionSmootherRef = { current: createPositionSmoother(smoothingValue) }
+        const rotationSmootherRef = { current: createRotationSmoother(smoothingValue) }
+
+        // Initialize smoothers with starting position/rotation
+        positionSmootherRef.current.set(targetPosition)
+        rotationSmootherRef.current.set(targetQuaternion)
+
+        frameTransform = {
+          group,
+          targetPosition,
+          targetQuaternion,
+          positionSmootherRef,
+          rotationSmootherRef
+        }
+
+        // Initialize position and rotation to target (no smoothing on first frame)
+        group.position.copy(targetPosition)
+        group.quaternion.copy(targetQuaternion)
+        transformsMapRef.current.set(frameId, frameTransform)
+        groupRef.current!.add(group)
+      } else {
+        // Update target transform for smoothing
+        frameTransform.targetPosition.set(
+          tf.transform.translation.x,
+          tf.transform.translation.y,
+          tf.transform.translation.z
+        )
+        frameTransform.targetQuaternion.set(
+          tf.transform.rotation.x,
+          tf.transform.rotation.y,
+          tf.transform.rotation.z,
+          tf.transform.rotation.w
+        )
+      }
+
+      // If this is the frame we're following, notify parent (reuse stored values)
+      if (followFrameId && frameId === followFrameId && onFollowTransformUpdate && frameTransform) {
+        onFollowTransformUpdate(frameTransform.targetPosition, frameTransform.targetQuaternion)
       }
     })
-  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate, showModel, modelTemplate])
+  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate])
+
+  // Smooth interpolation of transforms each frame (same as CameraFollowController)
+  useFrame(() => {
+    if (!transformsMapRef.current.size) return
+
+    transformsMapRef.current.forEach((frameTransform) => {
+      const { group, targetPosition, targetQuaternion, positionSmootherRef, rotationSmootherRef } = frameTransform
+
+      // Smooth the position (same pattern as CameraFollowController)
+      const smoothedPos = smoothingValue === 0
+        ? targetPosition
+        : positionSmootherRef.current.smooth(targetPosition)
+
+      // Smooth the rotation (same pattern as CameraFollowController)
+      const smoothedRot = smoothingValue === 0
+        ? targetQuaternion
+        : rotationSmootherRef.current.smooth(targetQuaternion)
+
+      // Update group transform
+      group.position.copy(smoothedPos)
+      group.quaternion.copy(smoothedRot)
+    })
+  })
 
   // Effect to recreate all frames when toggling between arrows and models
   useEffect(() => {
     if (!groupRef.current) return
 
-    // Clear all existing frames and recreate them
-    transformsMapRef.current.forEach((frameGroup) => {
-      groupRef.current?.remove(frameGroup)
+    // Recreate all frames with new style (arrows/model)
+    transformsMapRef.current.forEach((frameTransform) => {
+      // Remove old group
+      groupRef.current?.remove(frameTransform.group)
+
+      // Create new group with current style
+      const newGroup = createCoordinateFrame(arrowLength, arrowWidth, showModel, modelTemplate)
+
+      // Copy position and rotation from old group to new group
+      newGroup.position.copy(frameTransform.group.position)
+      newGroup.quaternion.copy(frameTransform.group.quaternion)
+
+      // Also update target position/quaternion to current position to prevent jumping
+      frameTransform.targetPosition.copy(frameTransform.group.position)
+      frameTransform.targetQuaternion.copy(frameTransform.group.quaternion)
+
+      // Reset smoothers to current position to prevent jumping
+      frameTransform.positionSmootherRef.current.set(frameTransform.group.position)
+      frameTransform.rotationSmootherRef.current.set(frameTransform.group.quaternion)
+
+      // Update the frame transform with new group
+      frameTransform.group = newGroup
+
+      // Add new group to scene
+      groupRef.current?.add(newGroup)
     })
-    transformsMapRef.current.clear()
-  }, [showModel, modelTemplate])
+  }, [showModel, modelTemplate, arrowLength, arrowWidth])
 
   useRosTopic<TFMessage>({
     topic,
@@ -218,22 +316,3 @@ function createArrow(
   return arrow
 }
 
-/**
- * Updates the position and rotation of a coordinate frame based on TF transform
- */
-function updateFrameTransform(group: THREE.Group, tf: TransformStamped): void {
-  // Set position
-  group.position.set(
-    tf.transform.translation.x,
-    tf.transform.translation.y,
-    tf.transform.translation.z
-  )
-
-  // Set rotation from quaternion
-  group.quaternion.set(
-    tf.transform.rotation.x,
-    tf.transform.rotation.y,
-    tf.transform.rotation.z,
-    tf.transform.rotation.w
-  )
-}

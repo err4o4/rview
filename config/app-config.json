@@ -23,6 +23,7 @@
     "enabled": true,
     "arrowLength": 0.2,
     "arrowWidth": 0.02,
+    "smoothing": 0,
     "follow": {
       "frameId": "body",
       "smoothing": 0

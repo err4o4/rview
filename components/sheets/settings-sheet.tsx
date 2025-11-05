@@ -335,19 +335,35 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
           {/* TF Block */}
           <div className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="tf-smoothing">TF Follow Smoothing</Label>
+              <Label htmlFor="tf-smoothing">TF Smoothing</Label>
               <Input
                 id="tf-smoothing"
                 type="number"
                 min="0"
-                max="20"
-                step="0.5"
-                value={config.tf.follow.smoothing}
-                onChange={(e) => updateTFFollow("smoothing", parseFloat(e.target.value) || 0)}
-                placeholder="1.5"
+                max="100"
+                step="1"
+                value={config.tf.smoothing}
+                onChange={(e) => updateTF("smoothing", parseFloat(e.target.value) || 0)}
+                placeholder="0"
               />
               <p className="text-xs text-muted-foreground">
-                0 = instant, 1-3 = light, 5-10 = heavy, 15-20 = very heavy
+                0 = instant, 5-10 = light, 20-30 = medium, 50+ = heavy
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="camera-smoothing">Camera Smoothing</Label>
+              <Input
+                id="camera-smoothing"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={config.tf.follow.smoothing}
+                onChange={(e) => updateTFFollow("smoothing", parseFloat(e.target.value) || 0)}
+                placeholder="0"
+              />
+              <p className="text-xs text-muted-foreground">
+                0 = instant, 5-10 = light, 20-30 = medium, 50+ = heavy
               </p>
             </div>
           </div>
