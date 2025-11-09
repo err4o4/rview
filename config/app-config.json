@@ -38,30 +38,32 @@
       {
         "package": "fast_lio",
         "launchFile": "mapping_ouster64_jetson.launch",
-        "args": [
-          {
-            "key": "rviz",
-            "value": "false"
-          }
-        ]
+        "args": [ { "key": "rviz", "value": "false" } ]
+      },
+      {
+        "package": "fast_livo",
+        "launchFile": "mapping_ouster_ntu.launch",
+        "args": [ { "key": "rviz", "value": "false" } ]
       },
       {
         "package": "ouster_ros",
         "launchFile": "driver.launch",
-        "args": [
-          {
-            "key": "sensor_hostname",
-            "value": "192.168.100.2"
-          },
-          {
-            "key": "organized",
-            "value": "false"
-          },
-          {
-            "key": "viz",
-            "value": "false"
-          }
+        "args": [ { "key": "sensor_hostname", "value": "192.168.100.2" },
+                  { "key": "organized", "value": "false" },
+                  { "key": "viz", "value": "false" }
         ]
+      },
+      {
+        "package": "trigger_cam",
+        "launchFile": "trigger_cam.launch",
+        "args": [ { "key": "device", "value": "/dev/video0" },
+                  { "key": "trigger_mode", "value": "true" }
+        ]
+      },
+       {
+        "package": "emlid_reach_ros",
+        "launchFile": "reach_ros.launch",
+        "args": [ { "key": "port", "value": "/dev/ttyACM0" } ]
       }
     ]
   },
