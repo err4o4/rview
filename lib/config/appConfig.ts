@@ -35,7 +35,6 @@ export interface StatsConfig {
 
 export interface TFConfig {
   topic: string;
-  enabled: boolean;
   arrowLength: number; // Length of coordinate frame arrows
   arrowWidth: number; // Width of coordinate frame arrows
   smoothing: number; // TF Smoothing (0 = instant, higher = smoother but slower)

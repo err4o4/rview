@@ -1,13 +1,13 @@
-import { Navigation, Lock, Eye, EyeOff, Palette, RotateCcw, Video, Circle as RecordCircle, Box } from "lucide-react"
+import { Navigation, Eye, EyeOff, Palette, RotateCcw, Video, Circle as RecordCircle, Box } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export interface PointCloudControlsProps {
   cameraFollowEnabled: boolean
-  onCameraFollowToggle: () => void
   cameraAngleLockEnabled: boolean
-  onCameraAngleLockToggle: () => void
+  onFollowCycle: () => void
   tfVisible: boolean
-  onTfVisibleToggle: () => void
+  showModel: boolean
+  onTfVisibilityCycle: () => void
   latestScanHighlightEnabled: boolean
   latestScanMode: 'brighter-red' | 'brighter'
   onLatestScanHighlightToggle: () => void
@@ -16,8 +16,6 @@ export interface PointCloudControlsProps {
   onRecordingToggle: () => void
   recordingCodec: 'h264' | 'vp9'
   recordingFps: number
-  showModel: boolean
-  onModelToggle: () => void
 }
 
 /**
@@ -25,11 +23,11 @@ export interface PointCloudControlsProps {
  */
 export function PointCloudControls({
   cameraFollowEnabled,
-  onCameraFollowToggle,
   cameraAngleLockEnabled,
-  onCameraAngleLockToggle,
+  onFollowCycle,
   tfVisible,
-  onTfVisibleToggle,
+  showModel,
+  onTfVisibilityCycle,
   latestScanHighlightEnabled,
   latestScanMode,
   onLatestScanHighlightToggle,
@@ -38,63 +36,68 @@ export function PointCloudControls({
   onRecordingToggle,
   recordingCodec,
   recordingFps,
-  showModel,
-  onModelToggle
 }: PointCloudControlsProps) {
   const codecLabel = recordingCodec === 'vp9' ? 'VP9' : 'H.264'
+
+  // Determine follow button state and styling
+  const getFollowState = () => {
+    if (!cameraFollowEnabled && !cameraAngleLockEnabled) {
+      return { title: "Follow TF", color: "text-muted-foreground", border: "" }
+    } else if (cameraFollowEnabled && !cameraAngleLockEnabled) {
+      return { title: "Follow TF (click for lock)", color: "text-blue-500", border: "border-blue-500" }
+    } else {
+      return { title: "Follow TF + Lock Camera", color: "text-red-500", border: "border-red-500" }
+    }
+  }
+
+  // Determine TF visibility button state and styling
+  const getTfVisibilityState = () => {
+    if (tfVisible && !showModel) {
+      return {
+        title: "TF Arrows (click for model)",
+        color: "text-green-500",
+        border: "border-green-500",
+        icon: <Eye className="h-4 w-4" />
+      }
+    } else if (tfVisible && showModel) {
+      return {
+        title: "TF Model (click to hide)",
+        color: "text-purple-500",
+        border: "border-purple-500",
+        icon: <Box className="h-4 w-4" />
+      }
+    } else {
+      return {
+        title: "TF Hidden (click for arrows)",
+        color: "text-muted-foreground",
+        border: "",
+        icon: <EyeOff className="h-4 w-4" />
+      }
+    }
+  }
+
+  const followState = getFollowState()
+  const tfVisibilityState = getTfVisibilityState()
+
   return (
-    <div className="absolute right-4 z-10 flex items-center gap-2" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.5rem)' }}>
+    <div className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
       <Button
         variant="ghost"
         size="icon"
-        onClick={onCameraFollowToggle}
-        title={cameraFollowEnabled ? "Disable camera follow" : "Enable camera follow"}
-        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
-          cameraFollowEnabled
-            ? "text-blue-500 border-blue-500"
-            : "text-muted-foreground"
-        }`}
+        onClick={onFollowCycle}
+        title={followState.title}
+        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${followState.color} ${followState.border}`}
       >
         <Navigation className="h-4 w-4" />
       </Button>
       <Button
         variant="ghost"
         size="icon"
-        onClick={onCameraAngleLockToggle}
-        title={cameraAngleLockEnabled ? "Disable angle lock" : "Enable angle lock"}
-        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
-          cameraAngleLockEnabled
-            ? "text-red-500 border-red-500"
-            : "text-muted-foreground"
-        }`}
+        onClick={onTfVisibilityCycle}
+        title={tfVisibilityState.title}
+        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${tfVisibilityState.color} ${tfVisibilityState.border}`}
       >
-        <Lock className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onTfVisibleToggle}
-        title={tfVisible ? "Hide TF arrows" : "Show TF arrows"}
-        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
-          tfVisible
-            ? "text-green-500 border-green-500"
-            : "text-muted-foreground"
-        }`}
-      >
-        {tfVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onModelToggle}
-        title={showModel ? "Show TF arrows" : "Show 3D model"}
-        className={`h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border ${
-          showModel
-            ? "text-purple-500 border-purple-500"
-            : "text-muted-foreground"
-        }`}
-      >
-        <Box className="h-4 w-4" />
+        {tfVisibilityState.icon}
       </Button>
       <Button
         variant="ghost"
@@ -114,15 +117,6 @@ export function PointCloudControls({
       <Button
         variant="ghost"
         size="icon"
-        onClick={onClear}
-        title="Clear points"
-        className="h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border text-muted-foreground"
-      >
-        <RotateCcw className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
         onClick={onRecordingToggle}
         title={isRecording
           ? "Stop recording (downloads MP4)"
@@ -135,6 +129,15 @@ export function PointCloudControls({
         }`}
       >
         {isRecording ? <RecordCircle className="h-4 w-4 fill-current" /> : <Video className="h-4 w-4" />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onClear}
+        title="Clear points"
+        className="h-8 w-8 bg-background/90 backdrop-blur-sm rounded-md border text-muted-foreground"
+      >
+        <RotateCcw className="h-4 w-4" />
       </Button>
     </div>
   )

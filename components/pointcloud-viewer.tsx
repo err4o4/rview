@@ -170,6 +170,40 @@ export function PointCloudViewer({ topic }: { topic: string }) {
     setError(err)
   }, [])
 
+  // Cycle through follow states: none -> follow -> follow+lock -> none
+  const handleFollowCycle = useCallback(() => {
+    if (!cameraFollowEnabled && !cameraAngleLockEnabled) {
+      // State 0 -> State 1: Enable follow
+      setCameraFollowEnabled(true)
+      setCameraAngleLockEnabled(false)
+    } else if (cameraFollowEnabled && !cameraAngleLockEnabled) {
+      // State 1 -> State 2: Enable lock too
+      setCameraFollowEnabled(true)
+      setCameraAngleLockEnabled(true)
+    } else {
+      // State 2 -> State 0: Disable both
+      setCameraFollowEnabled(false)
+      setCameraAngleLockEnabled(false)
+    }
+  }, [cameraFollowEnabled, cameraAngleLockEnabled])
+
+  // Cycle through TF visibility states: arrows -> model -> hide -> arrows
+  const handleTfVisibilityCycle = useCallback(() => {
+    if (tfVisible && !showModelInsteadOfArrows) {
+      // State 0 -> State 1: Show model
+      setTfVisible(true)
+      setShowModelInsteadOfArrows(true)
+    } else if (tfVisible && showModelInsteadOfArrows) {
+      // State 1 -> State 2: Hide
+      setTfVisible(false)
+      setShowModelInsteadOfArrows(false)
+    } else {
+      // State 2 -> State 0: Show arrows
+      setTfVisible(true)
+      setShowModelInsteadOfArrows(false)
+    }
+  }, [tfVisible, showModelInsteadOfArrows])
+
   return (
     <div className="relative w-full h-full min-h-[100px] bg-black/5 dark:bg-black/20 overflow-hidden">
       {/* Topic Info */}
@@ -178,11 +212,11 @@ export function PointCloudViewer({ topic }: { topic: string }) {
       {/* Control Buttons */}
       <PointCloudControls
         cameraFollowEnabled={cameraFollowEnabled}
-        onCameraFollowToggle={() => setCameraFollowEnabled(prev => !prev)}
         cameraAngleLockEnabled={cameraAngleLockEnabled}
-        onCameraAngleLockToggle={() => setCameraAngleLockEnabled(prev => !prev)}
+        onFollowCycle={handleFollowCycle}
         tfVisible={tfVisible}
-        onTfVisibleToggle={() => setTfVisible(prev => !prev)}
+        showModel={showModelInsteadOfArrows}
+        onTfVisibilityCycle={handleTfVisibilityCycle}
         latestScanHighlightEnabled={latestScanHighlightEnabled}
         latestScanMode={settings.pointcloud.latestScanMode}
         onLatestScanHighlightToggle={() => setLatestScanHighlightEnabled(prev => !prev)}
@@ -191,8 +225,6 @@ export function PointCloudViewer({ topic }: { topic: string }) {
         onRecordingToggle={recording.toggleRecording}
         recordingCodec={settings.recording.codec}
         recordingFps={settings.recording.fps}
-        showModel={showModelInsteadOfArrows}
-        onModelToggle={() => setShowModelInsteadOfArrows(prev => !prev)}
       />
 
       {/* Recording Indicators */}
@@ -280,7 +312,6 @@ export function PointCloudViewer({ topic }: { topic: string }) {
         {/* TF Viewer */}
         <TFViewer
           topic={settings.tf.topic}
-          enabled={settings.tf.enabled}
           visible={tfVisible}
           followFrameId={cameraFollowEnabled ? settings.tf.follow.frameId : undefined}
           onFollowTransformUpdate={

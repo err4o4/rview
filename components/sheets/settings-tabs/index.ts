@@ -1,0 +1,7 @@
+export { GeneralTab } from "./general-tab"
+export { ViewerTab } from "./viewer-tab"
+export { CameraTab } from "./camera-tab"
+export { NodesTab } from "./nodes-tab"
+export { RosRecorderTab } from "./ros-recorder-tab"
+export { RecorderTab } from "./recorder-tab"
+export { OtherTab } from "./other-tab"
