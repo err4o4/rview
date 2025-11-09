@@ -219,6 +219,7 @@ export class TopicManager {
   private callbacks: Map<string, Set<TopicCallback<any>>> = new Map();
   private topicTypes: Map<string, MessageType> = new Map();
   private nextSubscriptionId: number = 1;
+  private colorMode: "intensity" | "rgb" = "intensity";
 
   // Message readers
   private nodeListReader: MessageReader;
@@ -251,6 +252,10 @@ export class TopicManager {
     this.compressedImageReader = new MessageReader(compressedImageMsgDef);
     this.systemStatusReader = new MessageReader(systemStatusMsgDef);
     this.tfMessageReader = new MessageReader(tfMessageMsgDef);
+  }
+
+  setColorMode(mode: "intensity" | "rgb"): void {
+    this.colorMode = mode;
   }
 
   handleAdvertise(channels: any[]): void {
@@ -366,6 +371,7 @@ export class TopicManager {
     const yf = fields.find((f: any) => f.name === "y");
     const zf = fields.find((f: any) => f.name === "z");
     const intensityf = fields.find((f: any) => f.name === "intensity");
+    const rgbf = fields.find((f: any) => f.name === "rgb");
 
     if (!xf || !yf || !zf) {
       throw new Error("PointCloud2: x/y/z fields not found");
@@ -384,6 +390,7 @@ export class TopicManager {
 
     const points: number[] = [];
     const intensities: number[] = [];
+    const rgbColors: number[] = [];
     let minIntensity = Infinity;
     let maxIntensity = -Infinity;
 
@@ -396,8 +403,22 @@ export class TopicManager {
       if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
         points.push(x, y, z);
 
-        // Extract intensity if available
-        if (intensityf) {
+        // Extract RGB if available and in RGB mode
+        if (this.colorMode === "rgb" && rgbf) {
+          // RGB field is typically packed as a float32 containing 3 bytes (R, G, B)
+          const rgbFloat = view.getFloat32(base + rgbf.offset, littleEndian);
+          const rgbInt = new Float32Array([rgbFloat])[0];
+          const rgbBytes = new Uint8Array(new Float32Array([rgbInt]).buffer);
+
+          // Extract RGB bytes (usually in BGR order in ROS)
+          const r = rgbBytes[2] / 255.0;
+          const g = rgbBytes[1] / 255.0;
+          const b = rgbBytes[0] / 255.0;
+
+          rgbColors.push(r, g, b);
+        }
+        // Extract intensity if available and in intensity mode
+        else if (this.colorMode === "intensity" && intensityf) {
           let intensity = 0;
           if (intensityf.datatype === FLOAT32_DATATYPE) {
             intensity = view.getFloat32(base + intensityf.offset, littleEndian);
@@ -414,9 +435,13 @@ export class TopicManager {
       }
     }
 
-    // Convert intensities to colors using turbo colormap
+    // Return RGB colors if in RGB mode
     let colors: Float32Array | undefined;
-    if (intensities.length > 0 && maxIntensity > minIntensity) {
+    if (this.colorMode === "rgb" && rgbColors.length > 0) {
+      colors = new Float32Array(rgbColors);
+    }
+    // Convert intensities to colors using turbo colormap if in intensity mode
+    else if (this.colorMode === "intensity" && intensities.length > 0 && maxIntensity > minIntensity) {
       const colorArray: number[] = [];
       for (const intensity of intensities) {
         // Normalize intensity to 0-1 range

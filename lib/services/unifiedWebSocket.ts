@@ -101,6 +101,10 @@ class UnifiedWebSocketService {
   callService<TRequest, TResponse>(service: string, request: TRequest): Promise<TResponse> {
     return this.serviceManager.callService(service, request);
   }
+
+  setColorMode(mode: "intensity" | "rgb"): void {
+    this.topicManager.setColorMode(mode);
+  }
 }
 
 export const unifiedWebSocket = new UnifiedWebSocketService();

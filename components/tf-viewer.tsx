@@ -80,13 +80,32 @@ export function TFViewer({
     )
   }, [showModel, modelTemplate, modelLoading])
 
+  // Clear transforms when frameId changes in settings
+  useEffect(() => {
+    if (!groupRef.current) return
+
+    // Remove all existing transforms from the scene
+    transformsMapRef.current.forEach((frameTransform) => {
+      groupRef.current!.remove(frameTransform.group)
+    })
+    transformsMapRef.current.clear()
+  }, [settings.tf.follow.frameId])
+
   // Subscribe to TF topic
   const handleMessage = useCallback((message: TFMessage) => {
     if (!groupRef.current) return
 
+    // Filter to only show the frame specified in settings
+    const targetFrameId = settings.tf.follow.frameId
+
     // Process each transform in the message
     message.transforms.forEach((tf: TransformStamped) => {
       const frameId = tf.child_frame_id
+
+      // Only process the frame that matches the settings
+      if (frameId !== targetFrameId) {
+        return
+      }
 
       // Get or create coordinate frame group for this transform
       let frameTransform = transformsMapRef.current.get(frameId)
@@ -146,7 +165,7 @@ export function TFViewer({
         onFollowTransformUpdate(frameTransform.targetPosition, frameTransform.targetQuaternion)
       }
     })
-  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate])
+  }, [arrowLength, arrowWidth, followFrameId, onFollowTransformUpdate, settings])
 
   // Smooth interpolation of transforms each frame (same as CameraFollowController)
   useFrame(() => {

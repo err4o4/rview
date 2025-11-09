@@ -10,10 +10,11 @@
     "latestScanPointSize": 2.5,
     "latestScanMode": "brighter-red",
     "fov": 120,
-    "dynamicLatestPointScaling": true
+    "dynamicLatestPointScaling": true,
+    "colorMode": "intensity"
   },
   "camera": {
-    "topic": "/usb_cam/image_raw"
+    "topic": "/trigger_cam/image_raw/compressed"
   },
   "stats": {
     "topic": "/supervisor/monitor/system"

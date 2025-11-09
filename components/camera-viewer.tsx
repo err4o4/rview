@@ -131,7 +131,7 @@ export function CameraViewer({ topic }: CameraViewerProps) {
       )}
       {imageUrl && !error && (
         <div className="absolute bottom-0 left-0 right-0 bg-background/60 px-2 py-1">
-          <p className="text-xs text-muted-foreground truncate">(topic)</p>
+          <p className="text-xs text-muted-foreground truncate">{topic}</p>
         </div>
       )}
       

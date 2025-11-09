@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { NodesSheet } from "@/components/sheets/nodes-sheet"
 import { RecordSheet } from "@/components/sheets/record-sheet"
 import { SettingsSheet } from "@/components/sheets/settings-sheet"
@@ -9,6 +9,7 @@ import { CameraViewer } from "@/components/camera-viewer"
 import { StatsViewer } from "@/components/stats-viewer"
 import { useWebSocketStatus } from "@/lib/hooks/useWebSocketStatus"
 import { useSettings } from "@/lib/hooks/useSettings"
+import { unifiedWebSocket } from "@/lib/services/unifiedWebSocket"
 
 export default function Home() {
   const [nodesOpen, setNodesOpen] = useState(false)
@@ -16,6 +17,13 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { connected } = useWebSocketStatus()
   const { settings, loaded } = useSettings()
+
+  // Update color mode when settings change
+  useEffect(() => {
+    if (loaded) {
+      unifiedWebSocket.setColorMode(settings.pointcloud.colorMode)
+    }
+  }, [loaded, settings.pointcloud.colorMode])
 
   return (
     <div className="min-h-screen">

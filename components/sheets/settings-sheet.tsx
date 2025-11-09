@@ -274,6 +274,30 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               />
             </div>
             <div className="space-y-2">
+              <Label>Color Mode</Label>
+              <ButtonGroup className="w-full">
+                <Button
+                  type="button"
+                  variant={config.pointcloud.colorMode === "intensity" ? "default" : "outline"}
+                  onClick={() => updatePointcloud("colorMode", "intensity")}
+                  className="flex-1"
+                >
+                  Intensity
+                </Button>
+                <Button
+                  type="button"
+                  variant={config.pointcloud.colorMode === "rgb" ? "default" : "outline"}
+                  onClick={() => updatePointcloud("colorMode", "rgb")}
+                  className="flex-1"
+                >
+                  RGB
+                </Button>
+              </ButtonGroup>
+              <p className="text-xs text-muted-foreground">
+                Intensity uses turbo colormap, RGB uses colors from point cloud data
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label>Latest Scan Highlight Mode</Label>
               <ButtonGroup className="w-full">
                 <Button
@@ -348,6 +372,19 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               />
               <p className="text-xs text-muted-foreground">
                 0 = instant, 5-10 = light, 20-30 = medium, 50+ = heavy
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tf-follow-frame">Follow Frame ID</Label>
+              <Input
+                id="tf-follow-frame"
+                type="text"
+                value={config.tf.follow.frameId}
+                onChange={(e) => updateTFFollow("frameId", e.target.value)}
+                placeholder="body"
+              />
+              <p className="text-xs text-muted-foreground">
+                TF frame to follow when Follow mode is enabled
               </p>
             </div>
             <div className="space-y-2">
