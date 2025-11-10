@@ -190,6 +190,23 @@ export function TFViewer({
     })
   })
 
+  // Effect to recreate smoothers when smoothing value changes
+  useEffect(() => {
+    transformsMapRef.current.forEach((frameTransform) => {
+      // Get current smoothed position/rotation before recreating smoothers
+      const currentPos = frameTransform.group.position.clone()
+      const currentRot = frameTransform.group.quaternion.clone()
+
+      // Recreate smoothers with new smoothing value
+      frameTransform.positionSmootherRef.current = createPositionSmoother(smoothingValue)
+      frameTransform.rotationSmootherRef.current = createRotationSmoother(smoothingValue)
+
+      // Initialize new smoothers with current position to prevent jumping
+      frameTransform.positionSmootherRef.current.set(currentPos)
+      frameTransform.rotationSmootherRef.current.set(currentRot)
+    })
+  }, [smoothingValue])
+
   // Effect to recreate all frames when toggling between arrows and models
   useEffect(() => {
     if (!groupRef.current) return

@@ -1,45 +1,36 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { unifiedWebSocket, MessageType, type NodesMonitorMessage, type RosNode, type StopNodeRequest, type StartNodeRequest } from "../services/unifiedWebSocket";
-import { useRosTopic } from "./useRosTopic";
+import { useState, useEffect } from "react";
+import { type RosNode } from "../services/unifiedWebSocket";
+import { useSupervisorStatus } from "./useSupervisorStatus";
+import { useRosCommand } from "./useRosCommand";
 import { useSettings } from "./useSettings";
 
 export function useRosNodes() {
   const [nodes, setNodes] = useState<RosNode[]>([]);
   const { settings } = useSettings();
+  const { status, loading, error, connected } = useSupervisorStatus();
+  const { execute } = useRosCommand();
 
-  const handleMessage = useCallback((message: NodesMonitorMessage) => {
-    if (!message.nodes || !Array.isArray(message.nodes)) {
-      console.warn("Invalid nodes message format");
-      return;
+  // Update nodes when status changes
+  useEffect(() => {
+    if (status?.nodes?.list) {
+      // Filter out excluded nodes
+      const filteredNodes = status.nodes.list.filter(
+        (node) => !settings.nodes.exclude.includes(node.name)
+      );
+      setNodes(filteredNodes);
+    } else {
+      setNodes([]);
     }
-
-    // Filter out excluded nodes
-    const filteredNodes = message.nodes.filter(
-      (node) => !settings.nodes.exclude.includes(node.name)
-    );
-
-    setNodes(filteredNodes);
-  }, [settings.nodes.exclude]);
-
-  const { loading, error, connected } = useRosTopic<NodesMonitorMessage>({
-    topic: settings.nodes.topic,
-    messageType: MessageType.NODES_MONITOR,
-    onMessage: handleMessage,
-  });
+  }, [status, settings.nodes.exclude]);
 
   const stopNode = async (nodeName: string, pid: number): Promise<boolean> => {
     try {
-      const request: StopNodeRequest = {
+      await execute("stop_node", {
         node: nodeName,
         pid: pid,
-      };
-
-      await unifiedWebSocket.callService<StopNodeRequest, any>(
-        settings.nodes.stopService,
-        request
-      );
+      });
 
       return true;
     } catch (err) {
@@ -54,16 +45,11 @@ export function useRosNodes() {
     args: Array<{ key: string; value: string }>
   ): Promise<boolean> => {
     try {
-      const request: StartNodeRequest = {
+      await execute("start_node", {
         package: packageName,
         launch_file: launchFile,
         args: args,
-      };
-
-      await unifiedWebSocket.callService<StartNodeRequest, any>(
-        settings.nodes.startService,
-        request
-      );
+      });
 
       return true;
     } catch (err) {

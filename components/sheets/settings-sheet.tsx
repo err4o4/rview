@@ -25,7 +25,6 @@ import {
   NodesTab,
   RosRecorderTab,
   RecorderTab,
-  OtherTab,
 } from "./settings-tabs"
 
 interface SettingsSheetProps {
@@ -70,8 +69,8 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     setConfig({ ...config, camera: { ...config.camera, [field]: value } })
   }
 
-  const updateStats = (field: keyof AppConfig["stats"], value: string) => {
-    setConfig({ ...config, stats: { ...config.stats, [field]: value } })
+  const updateSupervisor = (field: keyof AppConfig["supervisor"], value: string) => {
+    setConfig({ ...config, supervisor: { ...config.supervisor, [field]: value } })
   }
 
   const updateTF = (field: keyof AppConfig["tf"], value: any) => {
@@ -211,10 +210,9 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               <TabsTrigger value="camera">Camera</TabsTrigger>
               <TabsTrigger value="recorder">Recorder</TabsTrigger>
             </TabsList>
-            <TabsList className="w-full grid grid-cols-3">
+            <TabsList className="w-full grid grid-cols-2">
               <TabsTrigger value="nodes">Nodes</TabsTrigger>
               <TabsTrigger value="ros-recorder">ROS Recorder</TabsTrigger>
-              <TabsTrigger value="other">Other</TabsTrigger>
             </TabsList>
           </div>
 
@@ -222,6 +220,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
             <GeneralTab
               config={config}
               updateConnection={updateConnection}
+              updateSupervisor={updateSupervisor}
             />
             <ViewerTab
               config={config}
@@ -256,13 +255,6 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
             <RecorderTab
               config={config}
               updateRecording={updateRecording}
-            />
-            <OtherTab
-              config={config}
-              updateNodes={updateNodes}
-              updateRecorder={updateRecorder}
-              updateStats={updateStats}
-              updateTF={updateTF}
             />
           </div>
         </Tabs>

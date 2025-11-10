@@ -1,35 +1,27 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { MessageType, SystemStatusMessage } from "@/lib/services/unifiedWebSocket"
-import { useRosTopic } from "@/lib/hooks/useRosTopic"
+import { useState, useEffect } from "react"
+import { useSupervisorStatus } from "@/lib/hooks/useSupervisorStatus"
 
-interface StatsViewerProps {
-  topic: string
-}
-
-export function StatsViewer({ topic }: StatsViewerProps) {
+export function StatsViewer() {
   const [cpuHistory, setCpuHistory] = useState<number[][]>([])
   const [isCollapsed, setIsCollapsed] = useState(false)
   const historyLength = 20
 
-  const handleMessage = useCallback((message: SystemStatusMessage) => {
-    // Update CPU history for sparklines
-    setCpuHistory((prev) => {
-      const newHistory = message.cpu_percent.map((cpuPercent, index) => {
-        const coreHistory = prev[index] || []
-        return [...coreHistory.slice(-historyLength + 1), cpuPercent]
-      })
-      return newHistory
-    })
-  }, [])
+  const { status } = useSupervisorStatus()
 
-  const { message: stats } = useRosTopic<SystemStatusMessage>({
-    topic,
-    messageType: MessageType.SYSTEM_STATUS,
-    enabled: !!topic,
-    onMessage: handleMessage,
-  })
+  // Update CPU history when status changes
+  useEffect(() => {
+    if (status?.system?.cpu) {
+      setCpuHistory((prev) => {
+        const newHistory = status.system.cpu.percent_per_core.map((cpuPercent, index) => {
+          const coreHistory = prev[index] || []
+          return [...coreHistory.slice(-historyLength + 1), cpuPercent]
+        })
+        return newHistory
+      })
+    }
+  }, [status])
 
   const formatBytes = (bytes: number): string => {
     const gb = bytes / (1024 * 1024 * 1024)
@@ -62,7 +54,9 @@ export function StatsViewer({ topic }: StatsViewerProps) {
     )
   }
 
-  if (!topic || !stats) return null
+  if (!status?.system) return null
+
+  const { cpu, ram } = status.system
 
   return (
     <div
@@ -79,11 +73,11 @@ export function StatsViewer({ topic }: StatsViewerProps) {
           <>
             <div className="flex justify-between">
               <span className="text-muted-foreground">CPU</span>
-              <span>{stats.cpu_percent_avg.toFixed(1)}%</span>
+              <span>{cpu.percent_avg.toFixed(1)}%</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">RAM</span>
-              <span>{formatBytes(stats.ram_used)}/{formatBytes(stats.ram_total)}</span>
+              <span>{formatBytes(ram.used_bytes)}/{formatBytes(ram.total_bytes)}</span>
             </div>
           </>
         ) : (
@@ -93,10 +87,10 @@ export function StatsViewer({ topic }: StatsViewerProps) {
             <div className="pb-1 border-b border-border/50">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">CPU</span>
-                <span>{stats.cpu_percent_avg.toFixed(1)}%</span>
+                <span>{cpu.percent_avg.toFixed(1)}%</span>
               </div>
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                {stats.cpu_percent.map((percent, index) => (
+                {cpu.percent_per_core.map((percent, index) => (
                   <div key={index} className="flex items-center justify-between gap-1">
                     <span className="text-[10px] text-muted-foreground">{index}</span>
                     <div className="flex items-center gap-1">
@@ -114,12 +108,12 @@ export function StatsViewer({ topic }: StatsViewerProps) {
               <div className="space-y-0.5">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">RAM</span>
-                  <span>{formatBytes(stats.ram_used)} / {formatBytes(stats.ram_total)}</span>
+                  <span>{formatBytes(ram.used_bytes)} / {formatBytes(ram.total_bytes)}</span>
                 </div>
                 <div className="h-1.5 mt-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${stats.ram_percent}%` }}
+                    style={{ width: `${ram.percent}%` }}
                   />
                 </div>
               </div>

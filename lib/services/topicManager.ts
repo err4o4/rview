@@ -8,13 +8,10 @@ import { WebSocketConnection } from "./webSocketConnection";
 
 export enum MessageType {
   POINT_CLOUD = 'PointCloud2',
-  NODES_MONITOR = 'NodesMonitor',
-  RECORDS_MONITOR = 'RecordsMonitor',
-  RECORDING_STATUS = 'RecordingStatus',
-  SYSTEM_STATUS = 'SystemStatus',
   COMPRESSED_IMAGE = 'CompressedImage',
   IMAGE = 'Image',
-  TF = 'TFMessage'
+  TF = 'TFMessage',
+  SUPERVISOR_STATUS = 'SupervisorStatus'
 }
 
 export interface RosNode {
@@ -22,48 +19,10 @@ export interface RosNode {
   pid: number;
 }
 
-export interface NodesMonitorMessage {
-  stamp: { sec: number; nsec: number };
-  count: number;
-  nodes: RosNode[];
-}
-
-export interface RecordFile {
-  name: string;
-  size: string;
-  created: { sec: number; nsec: number };
-}
-
-export interface RecordsMonitorMessage {
-  stamp: { sec: number; nsec: number };
-  count: number;
-  files: RecordFile[];
-}
-
 export interface PointCloudMessage {
   timestamp: number;
   points: Float32Array;
   colors?: Float32Array; // RGB colors (0-1 range), 3 values per point
-}
-
-export interface RecordingStatusMessage {
-  stamp: { sec: number; nsec: number };
-  recording: boolean;
-  recording_time: { sec: number; nsec: number };
-  filename: string;
-  filesize: number;
-  space_left: number;
-}
-
-export interface SystemStatusMessage {
-  stamp: { sec: number; nsec: number };
-  cpu_count: number;
-  cpu_percent: number[];
-  cpu_percent_avg: number;
-  ram_total: number;
-  ram_used: number;
-  ram_available: number;
-  ram_percent: number;
 }
 
 export interface Transform {
@@ -85,6 +44,74 @@ export interface TFMessage {
   transforms: TransformStamped[];
 }
 
+// ============================= Unified Supervisor Status Types =============================
+
+export interface CpuStatus {
+  count: number;
+  percent_avg: number;
+  percent_per_core: number[];
+}
+
+export interface RamStatus {
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  percent: number;
+}
+
+export interface StorageStatus {
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  percent: number;
+}
+
+export interface SystemResources {
+  cpu: CpuStatus;
+  ram: RamStatus;
+  storage: StorageStatus;
+}
+
+export interface RecordingStatusNew {
+  is_recording: boolean;
+  filename: string;
+  recording_time: { sec: number; nsec: number };
+  size_bytes: number;
+  topics: string[];
+}
+
+export interface NodesStatus {
+  count: number;
+  list: RosNode[];
+}
+
+export interface RecordingFile {
+  name: string;
+  size_bytes: number;
+  created: { sec: number; nsec: number };
+}
+
+export interface RecordingsStatus {
+  count: number;
+  total_size_bytes: number;
+  list: RecordingFile[];
+}
+
+export interface SupervisorHealth {
+  uptime: { sec: number; nsec: number };
+  version: string;
+  healthy: boolean;
+}
+
+export interface SupervisorStatusMessage {
+  stamp: { sec: number; nsec: number };
+  system: SystemResources;
+  recording: RecordingStatusNew;
+  nodes: NodesStatus;
+  recordings: RecordingsStatus;
+  supervisor: SupervisorHealth;
+}
+
 type ChannelInfo = {
   id: number;
   topic: string;
@@ -95,25 +122,6 @@ type ChannelInfo = {
 type TopicCallback<T> = (message: T) => void;
 
 // ============================= Message Definitions =============================
-
-const NODE_LIST_DEFINITION = `time stamp
-int32 count
-supervisor_msgs/NodeInfo[] nodes
-
-===
-MSG: supervisor_msgs/NodeInfo
-string name
-int32 pid`;
-
-const FILE_RECORD_LIST_DEFINITION = `time stamp
-int32 count
-supervisor_msgs/FileRecord[] files
-
-===
-MSG: supervisor_msgs/FileRecord
-string name
-int64 size
-time created`;
 
 const POINT_CLOUD2_DEFINITION = `std_msgs/Header header
 uint32 height
@@ -138,13 +146,6 @@ uint32 offset
 uint8 datatype
 uint32 count`;
 
-const RECORDING_STATUS_DEFINITION = `time stamp
-bool recording
-duration recording_time
-string filename
-int64 filesize
-int64 space_left`;
-
 const IMAGE_DEFINITION = `std_msgs/Header header
 uint32 height
 uint32 width
@@ -168,15 +169,6 @@ MSG: std_msgs/Header
 uint32 seq
 time stamp
 string frame_id`;
-
-const SYSTEM_STATUS_DEFINITION = `time stamp
-int32 cpu_count
-float32[] cpu_percent
-float32 cpu_percent_avg
-int64 ram_total
-int64 ram_used
-int64 ram_available
-float32 ram_percent`;
 
 const TF_MESSAGE_DEFINITION = `geometry_msgs/TransformStamped[] transforms
 
@@ -210,6 +202,75 @@ float64 y
 float64 z
 float64 w`;
 
+const SUPERVISOR_STATUS_DEFINITION = `time stamp
+ros_supervisor/SystemResources system
+ros_supervisor/RecordingStatusNew recording
+ros_supervisor/NodesStatus nodes
+ros_supervisor/RecordingsStatus recordings
+ros_supervisor/SupervisorHealth supervisor
+
+===
+MSG: ros_supervisor/SystemResources
+ros_supervisor/CpuStatus cpu
+ros_supervisor/RamStatus ram
+ros_supervisor/StorageStatus storage
+
+===
+MSG: ros_supervisor/CpuStatus
+int32 count
+float32 percent_avg
+float32[] percent_per_core
+
+===
+MSG: ros_supervisor/RamStatus
+int64 total_bytes
+int64 used_bytes
+int64 available_bytes
+float32 percent
+
+===
+MSG: ros_supervisor/StorageStatus
+int64 total_bytes
+int64 used_bytes
+int64 available_bytes
+float32 percent
+
+===
+MSG: ros_supervisor/RecordingStatusNew
+bool is_recording
+string filename
+duration recording_time
+int64 size_bytes
+string[] topics
+
+===
+MSG: ros_supervisor/NodesStatus
+int32 count
+ros_supervisor/NodeInfo[] list
+
+===
+MSG: ros_supervisor/NodeInfo
+string name
+int32 pid
+
+===
+MSG: ros_supervisor/RecordingsStatus
+int32 count
+int64 total_size_bytes
+ros_supervisor/RecordingFile[] list
+
+===
+MSG: ros_supervisor/RecordingFile
+string name
+int64 size_bytes
+time created
+
+===
+MSG: ros_supervisor/SupervisorHealth
+duration uptime
+string version
+bool healthy`;
+
 // ============================= Topic Manager =============================
 
 export class TopicManager {
@@ -222,36 +283,27 @@ export class TopicManager {
   private colorMode: "intensity" | "rgb" = "intensity";
 
   // Message readers
-  private nodeListReader: MessageReader;
-  private fileRecordListReader: MessageReader;
   private pointCloud2Reader: MessageReader;
-  private recordingStatusReader: MessageReader;
   private imageReader: MessageReader;
   private compressedImageReader: MessageReader;
-  private systemStatusReader: MessageReader;
   private tfMessageReader: MessageReader;
+  private supervisorStatusReader: MessageReader;
 
   constructor(connection: WebSocketConnection) {
     this.connection = connection;
 
     // Initialize message readers
-    const nodeListMsgDef = parse(NODE_LIST_DEFINITION);
-    const fileRecordListMsgDef = parse(FILE_RECORD_LIST_DEFINITION);
     const pointCloud2MsgDef = parse(POINT_CLOUD2_DEFINITION);
-    const recordingStatusMsgDef = parse(RECORDING_STATUS_DEFINITION);
     const imageMsgDef = parse(IMAGE_DEFINITION);
     const compressedImageMsgDef = parse(COMPRESSED_IMAGE_DEFINITION);
-    const systemStatusMsgDef = parse(SYSTEM_STATUS_DEFINITION);
     const tfMessageMsgDef = parse(TF_MESSAGE_DEFINITION);
+    const supervisorStatusMsgDef = parse(SUPERVISOR_STATUS_DEFINITION);
 
-    this.nodeListReader = new MessageReader(nodeListMsgDef);
-    this.fileRecordListReader = new MessageReader(fileRecordListMsgDef);
     this.pointCloud2Reader = new MessageReader(pointCloud2MsgDef);
-    this.recordingStatusReader = new MessageReader(recordingStatusMsgDef);
     this.imageReader = new MessageReader(imageMsgDef);
     this.compressedImageReader = new MessageReader(compressedImageMsgDef);
-    this.systemStatusReader = new MessageReader(systemStatusMsgDef);
     this.tfMessageReader = new MessageReader(tfMessageMsgDef);
+    this.supervisorStatusReader = new MessageReader(supervisorStatusMsgDef);
   }
 
   setColorMode(mode: "intensity" | "rgb"): void {
@@ -322,24 +374,15 @@ export class TopicManager {
         case MessageType.POINT_CLOUD:
           message = this.decodePointCloud(payload, timestampNs);
           break;
-        case MessageType.NODES_MONITOR:
-          message = this.decodeNodesMessage(payload);
-          break;
-        case MessageType.RECORDS_MONITOR:
-          message = this.decodeRecordsMessage(payload);
-          break;
-        case MessageType.RECORDING_STATUS:
-          message = this.decodeRecordingStatusMessage(payload);
-          break;
-        case MessageType.SYSTEM_STATUS:
-          message = this.decodeSystemStatusMessage(payload);
-          break;
         case MessageType.COMPRESSED_IMAGE:
         case MessageType.IMAGE:
           message = this.decodeCompressedImage(payload);
           break;
         case MessageType.TF:
           message = this.decodeTFMessage(payload);
+          break;
+        case MessageType.SUPERVISOR_STATUS:
+          message = this.decodeSupervisorStatusMessage(payload);
           break;
         default:
           console.warn('Unknown message type:', messageType, 'for topic:', topic);
@@ -482,65 +525,6 @@ export class TopicManager {
     return [r, g, b];
   }
 
-  private decodeNodesMessage(payload: ArrayBuffer): NodesMonitorMessage {
-    const uint8Array = new Uint8Array(payload);
-    const message = this.nodeListReader.readMessage(uint8Array) as any;
-
-    return {
-      stamp: message.stamp,
-      count: message.count,
-      nodes: message.nodes.map((node: any) => ({
-        name: node.name,
-        pid: node.pid,
-      })),
-    };
-  }
-
-  private decodeRecordsMessage(payload: ArrayBuffer): RecordsMonitorMessage {
-    const uint8Array = new Uint8Array(payload);
-    const message = this.fileRecordListReader.readMessage(uint8Array) as any;
-
-    return {
-      stamp: message.stamp,
-      count: message.count,
-      files: message.files.map((file: any) => ({
-        name: file.name,
-        size: file.size.toString(),
-        created: file.created,
-      })),
-    };
-  }
-
-  private decodeRecordingStatusMessage(payload: ArrayBuffer): RecordingStatusMessage {
-    const uint8Array = new Uint8Array(payload);
-    const message = this.recordingStatusReader.readMessage(uint8Array) as any;
-
-    return {
-      stamp: message.stamp,
-      recording: message.recording,
-      recording_time: message.recording_time,
-      filename: message.filename,
-      filesize: Number(message.filesize),
-      space_left: Number(message.space_left),
-    };
-  }
-
-  private decodeSystemStatusMessage(payload: ArrayBuffer): SystemStatusMessage {
-    const uint8Array = new Uint8Array(payload);
-    const message = this.systemStatusReader.readMessage(uint8Array) as any;
-
-    return {
-      stamp: message.stamp,
-      cpu_count: message.cpu_count,
-      cpu_percent: Array.from(message.cpu_percent),
-      cpu_percent_avg: message.cpu_percent_avg,
-      ram_total: Number(message.ram_total),
-      ram_used: Number(message.ram_used),
-      ram_available: Number(message.ram_available),
-      ram_percent: message.ram_percent,
-    };
-  }
-
   private decodeCompressedImage(payload: ArrayBuffer): any {
     const uint8Array = new Uint8Array(payload);
 
@@ -609,6 +593,62 @@ export class TopicManager {
           },
         },
       })),
+    };
+  }
+
+  private decodeSupervisorStatusMessage(payload: ArrayBuffer): SupervisorStatusMessage {
+    const uint8Array = new Uint8Array(payload);
+    const message = this.supervisorStatusReader.readMessage(uint8Array) as any;
+
+    return {
+      stamp: message.stamp,
+      system: {
+        cpu: {
+          count: message.system.cpu.count,
+          percent_avg: message.system.cpu.percent_avg,
+          percent_per_core: Array.from(message.system.cpu.percent_per_core),
+        },
+        ram: {
+          total_bytes: Number(message.system.ram.total_bytes),
+          used_bytes: Number(message.system.ram.used_bytes),
+          available_bytes: Number(message.system.ram.available_bytes),
+          percent: message.system.ram.percent,
+        },
+        storage: {
+          total_bytes: Number(message.system.storage.total_bytes),
+          used_bytes: Number(message.system.storage.used_bytes),
+          available_bytes: Number(message.system.storage.available_bytes),
+          percent: message.system.storage.percent,
+        },
+      },
+      recording: {
+        is_recording: message.recording.is_recording,
+        filename: message.recording.filename,
+        recording_time: message.recording.recording_time,
+        size_bytes: Number(message.recording.size_bytes),
+        topics: Array.from(message.recording.topics),
+      },
+      nodes: {
+        count: message.nodes.count,
+        list: message.nodes.list.map((node: any) => ({
+          name: node.name,
+          pid: node.pid,
+        })),
+      },
+      recordings: {
+        count: message.recordings.count,
+        total_size_bytes: Number(message.recordings.total_size_bytes),
+        list: message.recordings.list.map((file: any) => ({
+          name: file.name,
+          size_bytes: Number(file.size_bytes),
+          created: file.created,
+        })),
+      },
+      supervisor: {
+        uptime: message.supervisor.uptime,
+        version: message.supervisor.version,
+        healthy: message.supervisor.healthy,
+      },
     };
   }
 

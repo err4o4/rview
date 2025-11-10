@@ -66,9 +66,7 @@ export default function Home() {
             <CameraViewer
               topic={settings.camera.topic}
             />
-            <StatsViewer
-              topic={settings.stats.topic}
-            />
+            <StatsViewer />
           </div>
         )}
       </main>

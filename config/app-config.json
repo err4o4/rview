@@ -16,9 +16,6 @@
   "camera": {
     "topic": "/trigger_cam/image_raw/compressed"
   },
-  "stats": {
-    "topic": "/supervisor/monitor/system"
-  },
   "tf": {
     "topic": "/tf",
     "arrowLength": 0.2,
@@ -29,10 +26,11 @@
       "smoothing": 0
     }
   },
+  "supervisor": {
+    "topic": "/supervisor/status",
+    "service": "/supervisor/command"
+  },
   "nodes": {
-    "topic": "/supervisor/monitor/nodes",
-    "startService": "/supervisor/actions/start_node",
-    "stopService": "/supervisor/actions/stop_node",
     "exclude": ["/rosout", "/foxglove_nodelet_manager"],
     "launch": [
       {
@@ -68,11 +66,6 @@
     ]
   },
   "recorder": {
-    "topic": "/supervisor/monitor/records",
-    "statusTopic": "/supervisor/monitor/recording",
-    "deleteService": "/supervisor/actions/delete_recording",
-    "startService": "/supervisor/actions/start_recording",
-    "stopService": "/supervisor/actions/stop_recording",
     "topics": [
       "/ouster/points",
       "/ouster/imu"

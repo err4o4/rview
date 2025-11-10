@@ -7,25 +7,31 @@ import { ServiceManager } from "./serviceManager";
 // Re-export types for convenience
 export type {
   RosNode,
-  NodesMonitorMessage,
-  RecordFile,
-  RecordsMonitorMessage,
   PointCloudMessage,
-  RecordingStatusMessage,
-  SystemStatusMessage,
   TFMessage,
   TransformStamped,
   Transform,
+  SupervisorStatusMessage,
+  CpuStatus,
+  RamStatus,
+  StorageStatus,
+  SystemResources,
+  RecordingStatusNew,
+  NodesStatus,
+  RecordingFile,
+  RecordingsStatus,
+  SupervisorHealth,
 } from "./topicManager";
 
 export { MessageType } from "./topicManager";
 
 export type {
-  StopNodeRequest,
-  StartNodeRequest,
-  DeleteRecordingRequest,
-  StartRecordingRequest,
-  StopRecordingRequest
+  CommandRequest,
+  CommandResponse,
+  CommandParams,
+  CommandData,
+  KeyValue,
+  NodeInfo,
 } from "./serviceManager";
 
 // ============================= Unified WebSocket Service =============================
@@ -100,6 +106,10 @@ class UnifiedWebSocketService {
 
   callService<TRequest, TResponse>(service: string, request: TRequest): Promise<TResponse> {
     return this.serviceManager.callService(service, request);
+  }
+
+  callCommand(action: string, params: import("./serviceManager").CommandParams = {}) {
+    return this.serviceManager.callCommand(action, params);
   }
 
   setColorMode(mode: "intensity" | "rgb"): void {

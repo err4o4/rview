@@ -29,10 +29,6 @@ export interface CameraConfig {
   topic: string;
 }
 
-export interface StatsConfig {
-  topic: string;
-}
-
 export interface TFConfig {
   topic: string;
   arrowLength: number; // Length of coordinate frame arrows
@@ -44,20 +40,17 @@ export interface TFConfig {
   };
 }
 
+export interface SupervisorConfig {
+  topic: string; // Unified status topic
+  service: string; // Unified command service
+}
+
 export interface NodesConfig {
-  topic: string;
-  startService: string;
-  stopService: string;
   exclude: string[];
   launch: StartableNode[];
 }
 
 export interface RecorderConfig {
-  topic: string;
-  statusTopic: string;
-  deleteService: string;
-  startService: string;
-  stopService: string;
   topics: string[];
 }
 
@@ -76,8 +69,8 @@ export interface AppConfig {
   connection: ConnectionConfig;
   pointcloud: PointCloudConfig;
   camera: CameraConfig;
-  stats: StatsConfig;
   tf: TFConfig;
+  supervisor: SupervisorConfig;
   nodes: NodesConfig;
   recorder: RecorderConfig;
   recording: RecordingConfig;

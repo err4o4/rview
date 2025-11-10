@@ -6,13 +6,37 @@ import { appConfig, type AppConfig } from "../config/appConfig";
 const SETTINGS_KEY = "ros_view_settings";
 const SETTINGS_CHANGE_EVENT = "ros_settings_changed";
 
+// Deep merge helper to combine saved settings with defaults
+function deepMerge(target: any, source: any): any {
+  const result = { ...target };
+
+  for (const key in source) {
+    if (source.hasOwnProperty(key)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        // Recursively merge nested objects
+        result[key] = deepMerge(target[key] || {}, source[key]);
+      } else if (target[key] !== undefined) {
+        // Use saved value if it exists
+        result[key] = target[key];
+      } else {
+        // Use default value for new fields
+        result[key] = source[key];
+      }
+    }
+  }
+
+  return result;
+}
+
 // Helper to load settings from localStorage
 function loadSettingsFromStorage(): AppConfig {
   if (typeof window !== "undefined") {
     const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const savedSettings = JSON.parse(saved);
+        // Merge saved settings with default config to handle new fields
+        return deepMerge(savedSettings, appConfig);
       } catch (err) {
         console.error("Failed to parse settings from localStorage:", err);
       }

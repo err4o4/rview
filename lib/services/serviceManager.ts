@@ -7,27 +7,47 @@ import { WebSocketConnection } from "./webSocketConnection";
 
 // ============================= Types =============================
 
-export interface StopNodeRequest {
-  node: string;
+export interface KeyValue {
+  key: string;
+  value: string;
+}
+
+export interface NodeInfo {
+  name: string;
   pid: number;
 }
 
-export interface StartNodeRequest {
-  package: string;
-  launch_file: string;
-  args: Array<{ key: string; value: string }>;
+export interface CommandParams {
+  // Node control params
+  package?: string;
+  launch_file?: string;
+  args?: KeyValue[];
+  node?: string;
+  pid?: number;
+  // Recording params
+  topics?: string[];
+  filename?: string;
 }
 
-export interface DeleteRecordingRequest {
-  filename: string;
+export interface CommandData {
+  // Node start data
+  roslaunch_pid?: number;
+  started_nodes?: NodeInfo[];
+  // Recording data
+  recording_filename?: string;
+  recording_duration?: number;
+  recording_size_bytes?: number;
 }
 
-export interface StartRecordingRequest {
-  topics: string[];
+export interface CommandRequest {
+  action: string;
+  params: CommandParams;
 }
 
-export interface StopRecordingRequest {
-  // Empty - no parameters
+export interface CommandResponse {
+  ok: boolean;
+  message: string;
+  data: CommandData;
 }
 
 type ServiceInfo = {
@@ -40,51 +60,40 @@ type ServiceInfo = {
 
 // ============================= Message Definitions =============================
 
-const STOP_NODE_REQUEST_DEFINITION = `string node
-int32 pid`;
-
-const STOP_NODE_RESPONSE_DEFINITION = `bool ok
-string message
-string error`;
-
-const START_NODE_REQUEST_DEFINITION = `string package
-string launch_file
-supervisor_msgs/KeyValue[] args
+const COMMAND_REQUEST_DEFINITION = `string action
+ros_supervisor/CommandParams params
 
 ===
-MSG: supervisor_msgs/KeyValue
+MSG: ros_supervisor/CommandParams
+string package
+string launch_file
+ros_supervisor/KeyValue[] args
+string node
+int32 pid
+string[] topics
+string filename
+
+===
+MSG: ros_supervisor/KeyValue
 string key
 string value`;
 
-const START_NODE_RESPONSE_DEFINITION = `bool ok
-int32 roslaunch_pid
-supervisor_msgs/NodeInfo[] nodes
-
+const COMMAND_RESPONSE_DEFINITION = `bool ok
+string message
+ros_supervisor/CommandData data
 
 ===
-MSG: supervisor_msgs/NodeInfo
+MSG: ros_supervisor/CommandData
+int32 roslaunch_pid
+ros_supervisor/NodeInfo[] started_nodes
+string recording_filename
+float64 recording_duration
+int64 recording_size_bytes
+
+===
+MSG: ros_supervisor/NodeInfo
 string name
 int32 pid`;
-
-const DELETE_RECORDING_REQUEST_DEFINITION = `string filename`;
-
-const DELETE_RECORDING_RESPONSE_DEFINITION = `bool ok
-string message
-string error`;
-
-const START_RECORDING_REQUEST_DEFINITION = `string[] topics`;
-
-const START_RECORDING_RESPONSE_DEFINITION = `bool ok
-string message
-string error
-string filename`;
-
-const STOP_RECORDING_REQUEST_DEFINITION = ``;
-
-const STOP_RECORDING_RESPONSE_DEFINITION = `bool ok
-string message
-string error
-string filename`;
 
 // ============================= Service Manager =============================
 
@@ -95,39 +104,18 @@ export class ServiceManager {
   private serviceCalls: Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }> = new Map();
 
   // Message readers/writers
-  private stopNodeRequestWriter: MessageWriter;
-  private stopNodeResponseReader: MessageReader;
-  private startNodeRequestWriter: MessageWriter;
-  private startNodeResponseReader: MessageReader;
-  private deleteRecordingRequestWriter: MessageWriter;
-  private deleteRecordingResponseReader: MessageReader;
-  private startRecordingRequestWriter: MessageWriter;
-  private startRecordingResponseReader: MessageReader;
-  private stopRecordingResponseReader: MessageReader;
+  private commandRequestWriter: MessageWriter;
+  private commandResponseReader: MessageReader;
 
   constructor(connection: WebSocketConnection) {
     this.connection = connection;
 
     // Initialize message readers and writers
-    const stopNodeRequestMsgDef = parse(STOP_NODE_REQUEST_DEFINITION);
-    const stopNodeResponseMsgDef = parse(STOP_NODE_RESPONSE_DEFINITION);
-    const startNodeRequestMsgDef = parse(START_NODE_REQUEST_DEFINITION);
-    const startNodeResponseMsgDef = parse(START_NODE_RESPONSE_DEFINITION);
-    const deleteRecordingRequestMsgDef = parse(DELETE_RECORDING_REQUEST_DEFINITION);
-    const deleteRecordingResponseMsgDef = parse(DELETE_RECORDING_RESPONSE_DEFINITION);
-    const startRecordingRequestMsgDef = parse(START_RECORDING_REQUEST_DEFINITION);
-    const startRecordingResponseMsgDef = parse(START_RECORDING_RESPONSE_DEFINITION);
-    const stopRecordingResponseMsgDef = parse(STOP_RECORDING_RESPONSE_DEFINITION);
+    const commandRequestMsgDef = parse(COMMAND_REQUEST_DEFINITION);
+    const commandResponseMsgDef = parse(COMMAND_RESPONSE_DEFINITION);
 
-    this.stopNodeRequestWriter = new MessageWriter(stopNodeRequestMsgDef);
-    this.stopNodeResponseReader = new MessageReader(stopNodeResponseMsgDef);
-    this.startNodeRequestWriter = new MessageWriter(startNodeRequestMsgDef);
-    this.startNodeResponseReader = new MessageReader(startNodeResponseMsgDef);
-    this.deleteRecordingRequestWriter = new MessageWriter(deleteRecordingRequestMsgDef);
-    this.deleteRecordingResponseReader = new MessageReader(deleteRecordingResponseMsgDef);
-    this.startRecordingRequestWriter = new MessageWriter(startRecordingRequestMsgDef);
-    this.startRecordingResponseReader = new MessageReader(startRecordingResponseMsgDef);
-    this.stopRecordingResponseReader = new MessageReader(stopRecordingResponseMsgDef);
+    this.commandRequestWriter = new MessageWriter(commandRequestMsgDef);
+    this.commandResponseReader = new MessageReader(commandResponseMsgDef);
   }
 
   handleAdvertiseServices(services: any[]): void {
@@ -136,36 +124,28 @@ export class ServiceManager {
         id: service.id,
         name: service.name,
         type: service.type,
-        requestSchema: service.requestSchema,
-        responseSchema: service.responseSchema,
+        requestSchema: service.requestSchema || "",
+        responseSchema: service.responseSchema || "",
       });
     }
   }
 
   handleBinaryServiceCallResponse(buffer: ArrayBuffer): void {
-    // Format: op(1) + serviceId(4) + callId(4) + encodingLen(4) + encoding + payload
-    if (buffer.byteLength < 13) return;
+    if (buffer.byteLength < 9) return;
 
     const view = new DataView(buffer);
-    let offset = 1; // skip op
+    const serviceId = view.getUint32(1, true);
+    const callId = view.getUint32(5, true);
+    const encodingLen = view.getUint32(9, true);
 
-    const serviceId = view.getUint32(offset, true);
-    offset += 4;
-
-    const callId = view.getUint32(offset, true);
-    offset += 4;
-
-    const encodingLen = view.getUint32(offset, true);
-    offset += 4;
-
-    const encodingBytes = new Uint8Array(buffer.slice(offset, offset + encodingLen));
-    const encoding = new TextDecoder().decode(encodingBytes);
+    let offset = 13;
+    const encoding = new TextDecoder().decode(new Uint8Array(buffer, offset, encodingLen));
     offset += encodingLen;
 
-    const payload = new Uint8Array(buffer.slice(offset));
+    const payload = new Uint8Array(buffer, offset);
 
-    const serviceCall = this.serviceCalls.get(callId);
-    if (!serviceCall) return;
+    const pending = this.serviceCalls.get(callId);
+    if (!pending) return;
 
     this.serviceCalls.delete(callId);
 
@@ -177,40 +157,39 @@ export class ServiceManager {
         response = JSON.parse(responseData);
       } else if (encoding === "ros1" || encoding === "cdr") {
         // Decode based on service type
-        // Determine which service based on serviceId
         const service = Array.from(this.services.values()).find(s => s.id === serviceId);
 
-        if (service?.name.includes("stop_node")) {
-          response = this.stopNodeResponseReader.readMessage(payload);
-        } else if (service?.name.includes("start_node")) {
-          response = this.startNodeResponseReader.readMessage(payload);
-        } else if (service?.name.includes("delete_recording")) {
-          response = this.deleteRecordingResponseReader.readMessage(payload);
-        } else if (service?.name.includes("start_recording")) {
-          response = this.startRecordingResponseReader.readMessage(payload);
-        } else if (service?.name.includes("stop_recording")) {
-          response = this.stopRecordingResponseReader.readMessage(payload);
+        if (service?.name.includes("supervisor/command")) {
+          // Unified Command service
+          const rawResponse = this.commandResponseReader.readMessage(payload) as any;
+          response = {
+            ok: rawResponse.ok,
+            message: rawResponse.message,
+            data: {
+              roslaunch_pid: rawResponse.data?.roslaunch_pid,
+              started_nodes: rawResponse.data?.started_nodes?.map((node: any) => ({
+                name: node.name,
+                pid: node.pid,
+              })),
+              recording_filename: rawResponse.data?.recording_filename,
+              recording_duration: rawResponse.data?.recording_duration,
+              recording_size_bytes: Number(rawResponse.data?.recording_size_bytes),
+            },
+          };
         } else {
-          // Default to stop_node reader for backward compatibility
-          response = this.stopNodeResponseReader.readMessage(payload);
+          throw new Error(`Unknown service: ${service?.name}`);
         }
       } else {
-        serviceCall.reject(new Error(`Unsupported service response encoding: ${encoding}`));
-        return;
+        throw new Error(`Unsupported encoding: ${encoding}`);
       }
 
-      // Show toast notification based on response
-      if (response.ok) {
-        toast.success(response.message || "Service call successful");
-      } else {
-        toast.error(response.error || response.message || "Service call failed");
+      if (response && !response.ok && response.message) {
+        toast.error(response.message);
       }
 
-      serviceCall.resolve(response);
+      pending.resolve(response);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      toast.error(`Service call failed: ${errorMessage}`);
-      serviceCall.reject(error as Error);
+      pending.reject(error as Error);
     }
   }
 
@@ -221,7 +200,6 @@ export class ServiceManager {
         return;
       }
 
-      // Look up service to get serviceId
       const serviceInfo = this.services.get(service);
       if (!serviceInfo) {
         reject(new Error(`Service not found: ${service}`));
@@ -231,42 +209,84 @@ export class ServiceManager {
       const callId = this.nextServiceCallId++;
       this.serviceCalls.set(callId, { resolve, reject });
 
-      // Encode request using MessageWriter
-      let requestPayload: Uint8Array;
+      const requestData = JSON.stringify(request);
+      const requestBytes = new TextEncoder().encode(requestData);
+      const encodingBytes = new TextEncoder().encode("json");
 
-      if (service.includes("stop_node")) {
-        const req = request as any;
-        // Strip leading slash from node name if present
-        const nodeName = req.node.startsWith('/') ? req.node.substring(1) : req.node;
-        requestPayload = this.stopNodeRequestWriter.writeMessage({
-          node: nodeName,
-          pid: 0,  // Protocol expects PID to be 0
-        });
-      } else if (service.includes("start_node")) {
-        const req = request as StartNodeRequest;
-        requestPayload = this.startNodeRequestWriter.writeMessage({
-          package: req.package,
-          launch_file: req.launch_file,
-          args: req.args,
-        });
-      } else if (service.includes("delete_recording")) {
-        const req = request as DeleteRecordingRequest;
-        requestPayload = this.deleteRecordingRequestWriter.writeMessage({
-          filename: req.filename,
-        });
-      } else if (service.includes("start_recording")) {
-        const req = request as StartRecordingRequest;
-        requestPayload = this.startRecordingRequestWriter.writeMessage({
-          topics: req.topics,
-        });
-      } else if (service.includes("stop_recording")) {
-        // Stop recording has no request parameters - send empty message
-        requestPayload = new Uint8Array(0);
-      } else {
-        // For other services, try JSON encoding as fallback
-        const jsonStr = JSON.stringify(request);
-        requestPayload = new TextEncoder().encode(jsonStr);
+      const headerSize = 1 + 4 + 4 + 4 + encodingBytes.length;
+      const totalSize = headerSize + requestBytes.length;
+
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      const bytes = new Uint8Array(buffer);
+
+      let offset = 0;
+
+      // op: callService (0x02)
+      view.setUint8(offset, 0x02);
+      offset += 1;
+
+      // serviceId
+      view.setUint32(offset, serviceInfo.id, true);
+      offset += 4;
+
+      // callId
+      view.setUint32(offset, callId, true);
+      offset += 4;
+
+      // encoding length + encoding
+      view.setUint32(offset, encodingBytes.length, true);
+      offset += 4;
+      bytes.set(encodingBytes, offset);
+      offset += encodingBytes.length;
+
+      // request payload
+      bytes.set(requestBytes, offset);
+
+      this.connection.send(buffer);
+
+      setTimeout(() => {
+        if (this.serviceCalls.has(callId)) {
+          this.serviceCalls.delete(callId);
+          reject(new Error("Service call timeout"));
+        }
+      }, 5000);
+    });
+  }
+
+  callCommand(action: string, params: CommandParams = {}): Promise<CommandResponse> {
+    return new Promise((resolve, reject) => {
+      if (!this.connection.isConnected()) {
+        reject(new Error("WebSocket not connected"));
+        return;
       }
+
+      // Look up unified command service
+      const serviceInfo = this.services.get("/supervisor/command");
+      if (!serviceInfo) {
+        reject(new Error("Unified command service not found"));
+        return;
+      }
+
+      const callId = this.nextServiceCallId++;
+      this.serviceCalls.set(callId, { resolve, reject });
+
+      // Build request with default values for all fields
+      const request = {
+        action,
+        params: {
+          package: params.package || "",
+          launch_file: params.launch_file || "",
+          args: params.args || [],
+          node: params.node || "",
+          pid: params.pid || 0,
+          topics: params.topics || [],
+          filename: params.filename || "",
+        },
+      };
+
+      // Encode request using MessageWriter
+      const requestPayload = this.commandRequestWriter.writeMessage(request);
 
       // Build binary service call message (Foxglove protocol)
       // Format: op(1) + serviceId(4) + callId(4) + encodingLen(4) + encoding + payload

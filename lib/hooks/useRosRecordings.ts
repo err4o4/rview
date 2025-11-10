@@ -1,17 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import {
-  unifiedWebSocket,
-  MessageType,
-  type RecordsMonitorMessage,
-  type RecordFile,
-  type DeleteRecordingRequest,
-  type StartRecordingRequest,
-  type StopRecordingRequest,
-  type RecordingStatusMessage,
-} from "../services/unifiedWebSocket";
-import { useRosTopic } from "./useRosTopic";
+import { useState, useEffect } from "react";
+import { type RecordingFile } from "../services/unifiedWebSocket";
+import { useSupervisorStatus } from "./useSupervisorStatus";
+import { useRosCommand } from "./useRosCommand";
 import { useSettings } from "./useSettings";
 
 export interface Recording {
@@ -29,11 +21,11 @@ export interface RecordingStatus {
   spaceLeft: number;
 }
 
-function recordFileToRecording(file: RecordFile): Recording {
+function recordFileToRecording(file: RecordingFile): Recording {
   return {
     id: file.name,
     name: file.name,
-    size: parseInt(file.size, 10),
+    size: file.size_bytes,
     createdAt: new Date(file.created.sec * 1000 + file.created.nsec / 1000000),
   };
 }
@@ -81,55 +73,46 @@ export function useRosRecordings() {
     spaceLeft: 0,
   });
   const { settings } = useSettings();
+  const { status, loading, error, connected } = useSupervisorStatus();
+  const { execute } = useRosCommand();
 
-  const handleRecordingsMessage = useCallback((message: RecordsMonitorMessage) => {
-    if (!message.files || !Array.isArray(message.files)) {
-      console.warn("Invalid recordings message format");
-      return;
+  // Update recordings and status when supervisor status changes
+  useEffect(() => {
+    if (status?.recordings?.list) {
+      const convertedRecordings = status.recordings.list
+        .filter((file) => file.name.endsWith(".bag") || file.name.endsWith(".bag.active"))
+        .map(recordFileToRecording)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      setRecordings(convertedRecordings);
+    } else {
+      setRecordings([]);
     }
 
-    const convertedRecordings = message.files
-      .filter((file) => file.name.endsWith(".bag") || file.name.endsWith(".bag.active"))
-      .map(recordFileToRecording)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-    setRecordings(convertedRecordings);
-  }, []);
-
-  const handleStatusMessage = useCallback((message: RecordingStatusMessage) => {
-    setRecordingStatus({
-      recording: message.recording,
-      recordingTime: message.recording_time.sec + message.recording_time.nsec / 1e9,
-      filename: message.filename,
-      filesize: message.filesize,
-      spaceLeft: message.space_left,
-    });
-  }, []);
-
-  // Subscribe to recordings list
-  const { loading, error, connected } = useRosTopic<RecordsMonitorMessage>({
-    topic: settings.recorder.topic,
-    messageType: MessageType.RECORDS_MONITOR,
-    onMessage: handleRecordingsMessage,
-  });
-
-  // Subscribe to recording status
-  useRosTopic<RecordingStatusMessage>({
-    topic: settings.recorder.statusTopic,
-    messageType: MessageType.RECORDING_STATUS,
-    onMessage: handleStatusMessage,
-  });
+    if (status?.recording) {
+      setRecordingStatus({
+        recording: status.recording.is_recording,
+        recordingTime: status.recording.recording_time.sec + status.recording.recording_time.nsec / 1e9,
+        filename: status.recording.filename,
+        filesize: status.recording.size_bytes,
+        spaceLeft: status.system?.storage?.available_bytes || 0,
+      });
+    } else {
+      setRecordingStatus({
+        recording: false,
+        recordingTime: 0,
+        filename: "",
+        filesize: 0,
+        spaceLeft: status?.system?.storage?.available_bytes || 0,
+      });
+    }
+  }, [status]);
 
   const deleteRecording = async (filename: string): Promise<boolean> => {
     try {
-      const request: DeleteRecordingRequest = {
+      await execute("delete_recording", {
         filename: filename,
-      };
-
-      await unifiedWebSocket.callService<DeleteRecordingRequest, any>(
-        settings.recorder.deleteService,
-        request
-      );
+      });
 
       return true;
     } catch (err) {
@@ -140,14 +123,9 @@ export function useRosRecordings() {
 
   const startRecording = async (): Promise<boolean> => {
     try {
-      const request: StartRecordingRequest = {
+      await execute("start_recording", {
         topics: settings.recorder.topics,
-      };
-
-      await unifiedWebSocket.callService<StartRecordingRequest, any>(
-        settings.recorder.startService,
-        request
-      );
+      });
 
       return true;
     } catch (err) {
@@ -158,12 +136,7 @@ export function useRosRecordings() {
 
   const stopRecording = async (): Promise<boolean> => {
     try {
-      const request: StopRecordingRequest = {};
-
-      await unifiedWebSocket.callService<StopRecordingRequest, any>(
-        settings.recorder.stopService,
-        request
-      );
+      await execute("stop_recording", {});
 
       return true;
     } catch (err) {
