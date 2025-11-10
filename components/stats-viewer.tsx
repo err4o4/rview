@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react"
 import { useSupervisorStatus } from "@/lib/hooks/useSupervisorStatus"
+import { useViewerState } from "@/lib/hooks/useViewerState"
 
 export function StatsViewer() {
   const [cpuHistory, setCpuHistory] = useState<number[][]>([])
-  const [isCollapsed, setIsCollapsed] = useState(false)
   const historyLength = 20
 
   const { status } = useSupervisorStatus()
+  const { state: viewerState, loaded: viewerStateLoaded, setStatsCollapsed } = useViewerState()
+  const isCollapsed = viewerStateLoaded ? viewerState.statsCollapsed : false
 
   // Update CPU history when status changes
   useEffect(() => {
@@ -65,7 +67,7 @@ export function StatsViewer() {
         //bottom: 'calc(1rem + env(safe-area-inset-bottom))',
         width: isCollapsed ? '140px' : '140px'
       }}
-      onClick={() => setIsCollapsed(prev => !prev)}
+      onClick={() => setStatsCollapsed(!isCollapsed)}
     >
       <div className="p-2 space-y-1">
         {isCollapsed ? (

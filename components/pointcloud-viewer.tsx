@@ -4,6 +4,7 @@ import { useRef, useState, useCallback, useMemo } from "react"
 import { Canvas, useFrame } from "@react-three/fiber"
 import { Grid } from "@react-three/drei"
 import { useSettings } from "@/lib/hooks/useSettings"
+import { useViewerState } from "@/lib/hooks/useViewerState"
 import { TFViewer } from "@/components/tf-viewer"
 import * as THREE from "three"
 import { Loader2 } from "lucide-react"
@@ -131,17 +132,28 @@ function PointCloud({
  */
 export function PointCloudViewer({ topic }: { topic: string }) {
   const { settings } = useSettings()
+  const {
+    state: viewerState,
+    loaded: viewerStateLoaded,
+    setCameraFollowEnabled,
+    setCameraAngleLockEnabled,
+    setTfVisible,
+    setLatestScanHighlightEnabled,
+    setShowModelInsteadOfArrows,
+  } = useViewerState()
 
   // State management
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pointCount, setPointCount] = useState(0)
   const [clearTrigger, setClearTrigger] = useState(0)
-  const [cameraFollowEnabled, setCameraFollowEnabled] = useState(false)
-  const [cameraAngleLockEnabled, setCameraAngleLockEnabled] = useState(false)
-  const [tfVisible, setTfVisible] = useState(true)
-  const [latestScanHighlightEnabled, setLatestScanHighlightEnabled] = useState(true)
-  const [showModelInsteadOfArrows, setShowModelInsteadOfArrows] = useState(false)
+
+  // Use viewer state from localStorage (with fallback until loaded)
+  const cameraFollowEnabled = viewerStateLoaded ? viewerState.cameraFollowEnabled : false
+  const cameraAngleLockEnabled = viewerStateLoaded ? viewerState.cameraAngleLockEnabled : false
+  const tfVisible = viewerStateLoaded ? viewerState.tfVisible : true
+  const latestScanHighlightEnabled = viewerStateLoaded ? viewerState.latestScanHighlightEnabled : true
+  const showModelInsteadOfArrows = viewerStateLoaded ? viewerState.showModelInsteadOfArrows : false
 
   // Refs for Canvas and renderer (needed for recording)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -219,7 +231,7 @@ export function PointCloudViewer({ topic }: { topic: string }) {
         onTfVisibilityCycle={handleTfVisibilityCycle}
         latestScanHighlightEnabled={latestScanHighlightEnabled}
         latestScanMode={settings.pointcloud.latestScanMode}
-        onLatestScanHighlightToggle={() => setLatestScanHighlightEnabled(prev => !prev)}
+        onLatestScanHighlightToggle={() => setLatestScanHighlightEnabled(!latestScanHighlightEnabled)}
         onClear={() => setClearTrigger(prev => prev + 1)}
         isRecording={recording.isRecording}
         onRecordingToggle={recording.toggleRecording}
