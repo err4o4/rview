@@ -16,6 +16,8 @@ export interface UsePointCloudFramesOptions {
   topic: string
   /** Decay time in milliseconds (0 = keep only latest frame) */
   decayTimeMs: number
+  /** Downsample ratio (0.2 = keep 20%, 1 = keep all) */
+  pointFilterNumber: number
   /** Trigger value that causes frames to be cleared */
   clearTrigger?: number
   /** Callback when connection status changes */
@@ -45,6 +47,7 @@ export interface UsePointCloudFramesReturn {
 export function usePointCloudFrames({
   topic,
   decayTimeMs,
+  pointFilterNumber,
   clearTrigger,
   onConnectionChange,
   onPointCountChange
@@ -53,22 +56,58 @@ export function usePointCloudFrames({
 
   // Memoize the message handler to prevent re-subscriptions
   const handleMessage = useCallback((message: PointCloudMessage) => {
+    let points = message.points
+    let colors = message.colors
+
+    // Apply downsampling if enabled (pointFilterNumber > 0)
+    if (pointFilterNumber < 1) {
+      const totalPoints = message.points.length / 3
+      const targetPoints = Math.floor(totalPoints * pointFilterNumber)
+
+      if (targetPoints < totalPoints) {
+        const newPoints = new Float32Array(targetPoints * 3)
+        const newColors = colors ? new Float32Array(targetPoints * 3) : undefined
+
+        // Uniform sampling - take every Nth point
+        const step = totalPoints / targetPoints
+
+        for (let i = 0; i < targetPoints; i++) {
+          const sourceIndex = Math.floor(i * step)
+
+          // Copy point coordinates
+          newPoints[i * 3] = message.points[sourceIndex * 3]
+          newPoints[i * 3 + 1] = message.points[sourceIndex * 3 + 1]
+          newPoints[i * 3 + 2] = message.points[sourceIndex * 3 + 2]
+
+          // Copy colors if available
+          if (colors && newColors) {
+            newColors[i * 3] = colors[sourceIndex * 3]
+            newColors[i * 3 + 1] = colors[sourceIndex * 3 + 1]
+            newColors[i * 3 + 2] = colors[sourceIndex * 3 + 2]
+          }
+        }
+
+        points = newPoints
+        colors = newColors
+      }
+    }
+
     // Performance: When decay is disabled (0), keep only latest message
     // This prevents unbounded memory growth and reduces processing
     if (decayTimeMs === 0) {
       framesRef.current = [{
         timestamp: message.timestamp,
-        points: message.points,
-        colors: message.colors,
+        points: points,
+        colors: colors,
       }]
     } else {
       framesRef.current.push({
         timestamp: message.timestamp,
-        points: message.points,
-        colors: message.colors,
+        points: points,
+        colors: colors,
       })
     }
-  }, [decayTimeMs])
+  }, [decayTimeMs, pointFilterNumber])
 
   // Subscribe to point cloud topic and add frames to buffer
   const { connected, error } = useRosTopic<PointCloudMessage>({

@@ -51,6 +51,22 @@ export function ViewerTab({ config, updatePointcloud, updateTF, updateTFFollow, 
           />
         </div>
         <div className="space-y-2">
+          <Label htmlFor="pointcloud-filter">Point Filter Number</Label>
+          <Input
+            id="pointcloud-filter"
+            type="number"
+            min="0"
+            max="1"
+            step="0.01"
+            value={config.pointcloud.pointFilterNumber}
+            onChange={(e) => updatePointcloud("pointFilterNumber", parseFloat(e.target.value) || 0)}
+            placeholder="1"
+          />
+          <p className="text-xs text-muted-foreground">
+            Downsample ratio: 0.2 = keep 20% of points, 1 = keep all
+          </p>
+        </div>
+        <div className="space-y-2">
           <Label htmlFor="pointcloud-size">Point Size</Label>
           <Input
             id="pointcloud-size"

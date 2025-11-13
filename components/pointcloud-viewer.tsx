@@ -54,6 +54,7 @@ function PointCloud({
 
   const decayTimeMs = settings.pointcloud.decayTimeSeconds * 1000
   const maxPoints = settings.pointcloud.maxPoints
+  const pointFilterNumber = settings.pointcloud.pointFilterNumber
   const pointSize = settings.pointcloud.pointSize
   const latestScanPointSize = settings.pointcloud.latestScanPointSize
   const latestScanMode = settings.pointcloud.latestScanMode
@@ -63,6 +64,7 @@ function PointCloud({
   const { frames } = usePointCloudFrames({
     topic,
     decayTimeMs,
+    pointFilterNumber,
     clearTrigger,
     onConnectionChange,
     onPointCountChange

@@ -6,6 +6,7 @@
     "topic": "/cloud_registered",
     "decayTimeSeconds": 10,
     "maxPoints": 0,
+    "pointFilterNumber": 1,
     "pointSize": 0.1,
     "latestScanPointSize": 2.5,
     "latestScanMode": "brighter-red",
