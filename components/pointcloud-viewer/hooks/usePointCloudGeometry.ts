@@ -176,19 +176,43 @@ export function usePointCloudGeometry({
         return
       }
 
-      // Apply decay filtering on main thread to clean up memory (throttled to every 200ms)
+      // Apply decay filtering and max points sliding window on main thread to clean up memory (throttled to every 200ms)
       const now = Date.now()
-      if (decayTimeMsRef.current > 0 && framesRef.current.length > 0 && (now - lastDecayCheckRef.current) > 200) {
+      if (framesRef.current.length > 0 && (now - lastDecayCheckRef.current) > 200) {
         lastDecayCheckRef.current = now
-        const currentTimeNs = now * 1_000_000
-        const decayTimeNs = decayTimeMsRef.current * 1_000_000
-
         const oldLength = framesRef.current.length
-        framesRef.current = framesRef.current.filter(
-          (frame) => currentTimeNs - frame.timestamp <= decayTimeNs
-        )
 
-        // If frames were removed by decay, that counts as a change
+        // Apply time-based decay filter if enabled
+        if (decayTimeMsRef.current > 0) {
+          const currentTimeNs = now * 1_000_000
+          const decayTimeNs = decayTimeMsRef.current * 1_000_000
+
+          framesRef.current = framesRef.current.filter(
+            (frame) => currentTimeNs - frame.timestamp <= decayTimeNs
+          )
+        }
+
+        // Apply max points sliding window to remove oldest frames
+        if (maxPointsRef.current > 0 && framesRef.current.length > 1) {
+          let totalPoints = 0
+          let frameIndex = framesRef.current.length - 1
+
+          // Count from newest to oldest
+          while (frameIndex >= 0) {
+            const framePoints = framesRef.current[frameIndex].points.length / 3
+            totalPoints += framePoints
+
+            // If we exceeded maxPoints, remove all frames older than this one
+            if (totalPoints >= maxPointsRef.current && frameIndex > 0) {
+              framesRef.current = framesRef.current.slice(frameIndex)
+              break
+            }
+
+            frameIndex--
+          }
+        }
+
+        // If frames were removed, that counts as a change
         if (oldLength !== framesRef.current.length && lastFrameCountRef.current === framesRef.current.length) {
           lastFrameCountRef.current = -1 // Force update
         }
@@ -219,7 +243,6 @@ export function usePointCloudGeometry({
             timestamp: f.timestamp
           })),
           decayTimeMs: decayTimeMsRef.current,
-          maxPoints: maxPointsRef.current,
           latestScanHighlight: latestScanHighlightRef.current,
           latestScanMode: latestScanModeRef.current,
           currentTimeMs: Date.now()

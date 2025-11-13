@@ -13,7 +13,6 @@ export interface ProcessRequest {
   type: 'process'
   frames: PointCloudFrame[]
   decayTimeMs: number
-  maxPoints: number
   latestScanHighlight: boolean
   latestScanMode: 'brighter-red' | 'brighter'
   currentTimeMs: number
@@ -63,43 +62,6 @@ function concatenateFrames(
   })
 
   return { points: allPoints, colors: allColors }
-}
-
-/**
- * Downsamples point cloud data to meet max points budget.
- */
-function downsamplePoints(
-  points: Float32Array,
-  colors: Float32Array,
-  maxPoints: number
-): { points: Float32Array; colors: Float32Array } {
-  const totalPointCount = points.length / 3
-
-  if (maxPoints <= 0 || totalPointCount <= maxPoints) {
-    return { points, colors }
-  }
-
-  const decimatedPoints = new Float32Array(maxPoints * 3)
-  const decimatedColors = new Float32Array(maxPoints * 3)
-  const step = totalPointCount / maxPoints
-
-  for (let i = 0; i < maxPoints; i++) {
-    const index = Math.floor(i * step + Math.random() * step)
-    const offset = Math.min(index, totalPointCount - 1) * 3
-
-    decimatedPoints[i * 3] = points[offset]
-    decimatedPoints[i * 3 + 1] = points[offset + 1]
-    decimatedPoints[i * 3 + 2] = points[offset + 2]
-
-    decimatedColors[i * 3] = colors[offset]
-    decimatedColors[i * 3 + 1] = colors[offset + 1]
-    decimatedColors[i * 3 + 2] = colors[offset + 2]
-  }
-
-  return {
-    points: decimatedPoints,
-    colors: decimatedColors
-  }
 }
 
 /**
@@ -157,7 +119,7 @@ function generateLatestColors(
 
 // Worker message handler
 self.onmessage = (e: MessageEvent<ProcessRequest>) => {
-  const { frames, decayTimeMs, maxPoints, latestScanHighlight, latestScanMode, currentTimeMs } = e.data
+  const { frames, decayTimeMs, latestScanHighlight, latestScanMode, currentTimeMs } = e.data
 
   if (frames.length === 0) {
     // No frames - return empty buffers
@@ -226,14 +188,11 @@ self.onmessage = (e: MessageEvent<ProcessRequest>) => {
   let olderPointCount = 0
 
   if (olderFrames.length > 0) {
-    // Concatenate all older frames
+    // Concatenate all older frames (sliding window already applied in main thread)
     const { points: allPoints, colors: allColors } = concatenateFrames(olderFrames)
-
-    // Downsample if needed
-    const { points: finalPoints, colors: finalColors } = downsamplePoints(allPoints, allColors, maxPoints)
-    olderPoints = finalPoints
-    olderColors = finalColors
-    olderPointCount = finalPoints.length / 3
+    olderPoints = allPoints
+    olderColors = allColors
+    olderPointCount = allPoints.length / 3
   } else {
     olderPoints = new Float32Array(0)
     olderColors = new Float32Array(0)
