@@ -40,6 +40,13 @@ export interface TFConfig {
   };
 }
 
+export interface PathConfig {
+  enabled: boolean; // Enable/disable path visualization
+  topic: string; // Path topic (e.g., "/path")
+  lineWidth: number; // Width of the path line
+  color: string; // Color of the path line (hex format)
+}
+
 export interface SupervisorConfig {
   topic: string; // Unified status topic
   service: string; // Unified command service
@@ -70,6 +77,7 @@ export interface AppConfig {
   pointcloud: PointCloudConfig;
   camera: CameraConfig;
   tf: TFConfig;
+  path: PathConfig;
   supervisor: SupervisorConfig;
   nodes: NodesConfig;
   recorder: RecorderConfig;

@@ -11,9 +11,10 @@ interface ViewerTabProps {
   updatePointcloud: (field: keyof AppConfig["pointcloud"], value: string | number | boolean) => void
   updateTF: (field: keyof AppConfig["tf"], value: any) => void
   updateTFFollow: (field: keyof AppConfig["tf"]["follow"], value: any) => void
+  updatePath: (field: keyof AppConfig["path"], value: any) => void
 }
 
-export function ViewerTab({ config, updatePointcloud, updateTF, updateTFFollow }: ViewerTabProps) {
+export function ViewerTab({ config, updatePointcloud, updateTF, updateTFFollow, updatePath }: ViewerTabProps) {
   return (
     <TabsContent value="viewer" className="space-y-6 mt-4">
       <div className="space-y-3">
@@ -196,6 +197,65 @@ export function ViewerTab({ config, updatePointcloud, updateTF, updateTFFollow }
           <p className="text-xs text-muted-foreground">
             0 = instant, 5-10 = light, 20-30 = medium, 50+ = heavy
           </p>
+        </div>
+      </div>
+
+      {/* Path Block */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between space-x-2">
+          <Label htmlFor="path-enabled" className="flex-1 cursor-pointer">
+            Enable Path Visualization
+          </Label>
+          <Switch
+            id="path-enabled"
+            checked={config.path.enabled}
+            onCheckedChange={(checked) => updatePath("enabled", checked)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="path-topic">Path Topic</Label>
+          <Input
+            id="path-topic"
+            value={config.path.topic}
+            onChange={(e) => updatePath("topic", e.target.value)}
+            placeholder="/path"
+            disabled={!config.path.enabled}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="path-line-width">Line Width</Label>
+          <Input
+            id="path-line-width"
+            type="number"
+            min="1"
+            max="10"
+            step="0.5"
+            value={config.path.lineWidth}
+            onChange={(e) => updatePath("lineWidth", parseFloat(e.target.value) || 2)}
+            placeholder="2"
+            disabled={!config.path.enabled}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="path-color">Line Color</Label>
+          <div className="flex gap-2">
+            <Input
+              id="path-color"
+              type="color"
+              value={config.path.color}
+              onChange={(e) => updatePath("color", e.target.value)}
+              className="w-20 h-10"
+              disabled={!config.path.enabled}
+            />
+            <Input
+              type="text"
+              value={config.path.color}
+              onChange={(e) => updatePath("color", e.target.value)}
+              placeholder="#00ff00"
+              className="flex-1"
+              disabled={!config.path.enabled}
+            />
+          </div>
         </div>
       </div>
     </TabsContent>

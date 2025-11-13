@@ -11,7 +11,8 @@ export enum MessageType {
   COMPRESSED_IMAGE = 'CompressedImage',
   IMAGE = 'Image',
   TF = 'TFMessage',
-  SUPERVISOR_STATUS = 'SupervisorStatus'
+  SUPERVISOR_STATUS = 'SupervisorStatus',
+  PATH = 'Path'
 }
 
 export interface RosNode {
@@ -42,6 +43,27 @@ export interface TransformStamped {
 
 export interface TFMessage {
   transforms: TransformStamped[];
+}
+
+export interface PoseStamped {
+  header: {
+    seq: number;
+    stamp: { sec: number; nsec: number };
+    frame_id: string;
+  };
+  pose: {
+    position: { x: number; y: number; z: number };
+    orientation: { x: number; y: number; z: number; w: number };
+  };
+}
+
+export interface PathMessage {
+  header: {
+    seq: number;
+    stamp: { sec: number; nsec: number };
+    frame_id: string;
+  };
+  poses: PoseStamped[];
 }
 
 // ============================= Unified Supervisor Status Types =============================
@@ -202,6 +224,38 @@ float64 y
 float64 z
 float64 w`;
 
+const PATH_MESSAGE_DEFINITION = `std_msgs/Header header
+geometry_msgs/PoseStamped[] poses
+
+===
+MSG: std_msgs/Header
+uint32 seq
+time stamp
+string frame_id
+
+===
+MSG: geometry_msgs/PoseStamped
+std_msgs/Header header
+geometry_msgs/Pose pose
+
+===
+MSG: geometry_msgs/Pose
+geometry_msgs/Point position
+geometry_msgs/Quaternion orientation
+
+===
+MSG: geometry_msgs/Point
+float64 x
+float64 y
+float64 z
+
+===
+MSG: geometry_msgs/Quaternion
+float64 x
+float64 y
+float64 z
+float64 w`;
+
 const SUPERVISOR_STATUS_DEFINITION = `time stamp
 ros_supervisor/SystemResources system
 ros_supervisor/RecordingStatusNew recording
@@ -288,6 +342,7 @@ export class TopicManager {
   private compressedImageReader: MessageReader;
   private tfMessageReader: MessageReader;
   private supervisorStatusReader: MessageReader;
+  private pathMessageReader: MessageReader;
 
   constructor(connection: WebSocketConnection) {
     this.connection = connection;
@@ -298,12 +353,14 @@ export class TopicManager {
     const compressedImageMsgDef = parse(COMPRESSED_IMAGE_DEFINITION);
     const tfMessageMsgDef = parse(TF_MESSAGE_DEFINITION);
     const supervisorStatusMsgDef = parse(SUPERVISOR_STATUS_DEFINITION);
+    const pathMessageMsgDef = parse(PATH_MESSAGE_DEFINITION);
 
     this.pointCloud2Reader = new MessageReader(pointCloud2MsgDef);
     this.imageReader = new MessageReader(imageMsgDef);
     this.compressedImageReader = new MessageReader(compressedImageMsgDef);
     this.tfMessageReader = new MessageReader(tfMessageMsgDef);
     this.supervisorStatusReader = new MessageReader(supervisorStatusMsgDef);
+    this.pathMessageReader = new MessageReader(pathMessageMsgDef);
   }
 
   setColorMode(mode: "intensity" | "rgb"): void {
@@ -384,6 +441,9 @@ export class TopicManager {
         case MessageType.SUPERVISOR_STATUS:
           message = this.decodeSupervisorStatusMessage(payload);
           break;
+        case MessageType.PATH:
+          message = this.decodePathMessage(payload);
+          break;
         default:
           console.warn('Unknown message type:', messageType, 'for topic:', topic);
           return;
@@ -448,15 +508,14 @@ export class TopicManager {
 
         // Extract RGB if available and in RGB mode
         if (this.colorMode === "rgb" && rgbf) {
-          // RGB field is typically packed as a float32 containing 3 bytes (R, G, B)
-          const rgbFloat = view.getFloat32(base + rgbf.offset, littleEndian);
-          const rgbInt = new Float32Array([rgbFloat])[0];
-          const rgbBytes = new Uint8Array(new Float32Array([rgbInt]).buffer);
+          // Read the RGB field directly as uint32 to avoid float reinterpretation issues
+          const rgbPacked = view.getUint32(base + rgbf.offset, littleEndian);
 
-          // Extract RGB bytes (usually in BGR order in ROS)
-          const r = rgbBytes[2] / 255.0;
-          const g = rgbBytes[1] / 255.0;
-          const b = rgbBytes[0] / 255.0;
+          // ROS PointCloud2 packs RGB as bytes in memory order: B, G, R, A (or padding)
+          // When read as little-endian uint32: [B, G, R, A] -> 0xAARRGGBB
+          const b = (rgbPacked & 0xFF) / 255.0;          // Byte 0: Blue
+          const g = ((rgbPacked >> 8) & 0xFF) / 255.0;   // Byte 1: Green
+          const r = ((rgbPacked >> 16) & 0xFF) / 255.0;  // Byte 2: Red
 
           rgbColors.push(r, g, b);
         }
@@ -649,6 +708,39 @@ export class TopicManager {
         version: message.supervisor.version,
         healthy: message.supervisor.healthy,
       },
+    };
+  }
+
+  private decodePathMessage(payload: ArrayBuffer): PathMessage {
+    const uint8Array = new Uint8Array(payload);
+    const message = this.pathMessageReader.readMessage(uint8Array) as any;
+
+    return {
+      header: {
+        seq: message.header.seq,
+        stamp: message.header.stamp,
+        frame_id: message.header.frame_id,
+      },
+      poses: message.poses.map((pose: any) => ({
+        header: {
+          seq: pose.header.seq,
+          stamp: pose.header.stamp,
+          frame_id: pose.header.frame_id,
+        },
+        pose: {
+          position: {
+            x: pose.pose.position.x,
+            y: pose.pose.position.y,
+            z: pose.pose.position.z,
+          },
+          orientation: {
+            x: pose.pose.orientation.x,
+            y: pose.pose.orientation.y,
+            z: pose.pose.orientation.z,
+            w: pose.pose.orientation.w,
+          },
+        },
+      })),
     };
   }
 

@@ -26,6 +26,13 @@
       "smoothing": 0
     }
   },
+  "path": {
+    "enabled": true,
+    "topic": "/path",
+    "lineWidth": 2,
+    "color": "#00ff00",
+    "maxPoints": 1000
+  },
   "supervisor": {
     "topic": "/supervisor/status",
     "service": "/supervisor/command"

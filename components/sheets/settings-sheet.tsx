@@ -81,6 +81,10 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     setConfig({ ...config, tf: { ...config.tf, follow: { ...config.tf.follow, [field]: value } } })
   }
 
+  const updatePath = (field: keyof AppConfig["path"], value: any) => {
+    setConfig({ ...config, path: { ...config.path, [field]: value } })
+  }
+
   const updateNodes = (field: keyof AppConfig["nodes"], value: any) => {
     setConfig({ ...config, nodes: { ...config.nodes, [field]: value } })
   }
@@ -227,6 +231,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               updatePointcloud={updatePointcloud}
               updateTF={updateTF}
               updateTFFollow={updateTFFollow}
+              updatePath={updatePath}
             />
             <CameraTab
               config={config}

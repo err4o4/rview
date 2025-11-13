@@ -6,6 +6,7 @@ import { Grid } from "@react-three/drei"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { useViewerState } from "@/lib/hooks/useViewerState"
 import { TFViewer } from "@/components/tf-viewer"
+import { PathViewer } from "@/components/path-viewer"
 import * as THREE from "three"
 import { Loader2 } from "lucide-react"
 
@@ -332,6 +333,14 @@ export function PointCloudViewer({ topic }: { topic: string }) {
               : undefined
           }
           showModel={showModelInsteadOfArrows}
+        />
+
+        {/* Path Viewer */}
+        <PathViewer
+          enabled={settings.path.enabled}
+          topic={settings.path.topic}
+          lineWidth={settings.path.lineWidth}
+          color={settings.path.color}
         />
 
         {/* Point Cloud */}

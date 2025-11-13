@@ -21,6 +21,8 @@ export type {
   RecordingFile,
   RecordingsStatus,
   SupervisorHealth,
+  PathMessage,
+  PoseStamped,
 } from "./topicManager";
 
 export { MessageType } from "./topicManager";
