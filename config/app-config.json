@@ -30,8 +30,7 @@
     "enabled": true,
     "topic": "/path",
     "lineWidth": 2,
-    "color": "#00ff00",
-    "maxPoints": 1000
+    "color": "#00ff00"
   },
   "supervisor": {
     "topic": "/supervisor/status",
