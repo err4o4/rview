@@ -4,7 +4,7 @@ This is yet another web based ROS visualization tool, similar to Foxglove but ma
 
 ![preview](.assets/cover.png)
 
-### Features:
+## Features:
 
 - Display point clouds (intensity and RGB rendering)
 - Display TF paths
@@ -18,7 +18,7 @@ Connection to the ROS master happens through [Foxglove Bridge](https://github.co
 
 If you want node control and rosbag management, you’ll also need [ros-supervisor](https://github.com/err4o4/ros-supervisor) on the master.
 
-### Running:
+## Running:
 ```
 git clone https://github.com/err4o4/rview.git
 cd rview
