@@ -26,6 +26,8 @@ docker build -t ros-view:latest .
 docker run -p 3000:3000 ros-view:latest
 ```
 
+If you want Rview to look like an app on mobile just add bookmark to the homescreen. 
+
 ## Pointcloud Viewer
 
 Because this tool was designed with mobile devices in mind, several optimizations were added to make interacting with large clouds less painful.
