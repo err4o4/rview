@@ -1,11 +1,11 @@
 ## Rview
 
-This is yet another web based ROS visualization tool — yes, similar to Foxglove but made for one specific purpose - showing pointclouds for handheld SLAM scanners on a phone. It should work nicely with FAST-LIO/LIVO or any similar SLAM framework.
+This is yet another web based ROS visualization tool, similar to Foxglove but made for one specific purpose - showing pointclouds for handheld SLAM scanners on a phone. It should work nicely with FAST-LIO/LIVO or any similar SLAM framework.
 
-![preview](./assets/cover.png)
+![preview](.assets/cover.png)
 
-Its main features are:
-```
+### Features:
+
 - Display point clouds (intensity and RGB rendering)
 - Display TF paths
 - Display camera images
@@ -13,7 +13,7 @@ Its main features are:
 - View/start/stop ROS nodes
 - Show host RAM/CPU usage
 - Record screen-capture videos (raw PNG or compressed), because why not
-```
+
 Connection to the ROS master happens through [Foxglove Bridge](https://github.com/foxglove/ros-foxglove-bridge), so it must be installed and running.  
 
 If you want node control and rosbag management, you’ll also need [ros-supervisor](https://github.com/err4o4/ros-supervisor) on the master.
