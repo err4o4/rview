@@ -1,117 +1,99 @@
-# ROS View
+## Rview
 
-Web-based visualization and control interface for portable handheld ROS scanners.
+This is yet another web based ROS visualization tool — yes, similar to Foxglove but made for one specific purpose - showing pointclouds for handheld SLAM scanners on a phone. It should work nicely with FAST-LIO/LIVO or any similar SLAM framework.
 
-## Purpose
+![preview](.assets/cover.png)
 
-This application provides real-time visualization of point cloud data from portable handheld scanning systems and manages ROS bag recording and node operations.
+Its main features are:
+```
+- Display point clouds (intensity and RGB rendering)
+- Display TF paths
+- Display camera images
+- Start/stop rosbag recording for selected topics + show disk usage
+- View/start/stop ROS nodes
+- Show host RAM/CPU usage
+- Record screen-capture videos (raw PNG or compressed), because why not
+```
+Connection to the ROS master happens through [Foxglove Bridge](https://github.com/foxglove/ros-foxglove-bridge), so it must be installed and running.  
 
-## Features
+If you want node control and rosbag management, you’ll also need [ros-supervisor](https://github.com/err4o4/ros-supervisor) on the master.
 
-### Point Cloud Viewer
+### Running:
+```
+git clone https://github.com/err4o4/rview.git
+cd rview
+docker build -t ros-view:latest .
+docker run -p 3000:3000 ros-view:latest
+```
 
-- Real-time 3D point cloud visualization using Three.js
-- Point decay system with configurable time limits
-- Latest scan highlighting (brighter or brighter-red modes)
-- Dynamic point scaling based on camera distance
-- Field of view adjustment
+## Pointcloud Viewer
 
-### Camera Controls
+Because this tool was designed with mobile devices in mind, several optimizations were added to make interacting with large clouds less painful.
 
-- Follow mode: Camera automatically follows TF frame (e.g., "body" frame)
-- Angle lock: Locks camera rotation while following
-- Manual orbit controls when follow mode is disabled
-- Configurable smoothing for camera movement (0-100+)
+#### Camera Modes  
+Click the arrow on the right side of the viewer to switch modes:
 
-### TF Visualization
+- **arrow not highlighted** – free-move camera; stays where you put it  
+- **blue arrow** – follows TF, but you control zoom and view angle  
+- **red arrow** – places camera behind TF in a first-person style; zoom adjustable
 
-- Displays coordinate frames as RGB arrows (X=red, Y=green, Z=blue)
-- Alternative 3D model visualization (GLB format)
-- Configurable arrow size and smoothing
-- Independent TF smoothing separate from camera smoothing
+#### TF Visualization Modes
 
-### Recording
+- **crossed-out eye** – TF marker hidden  
+- **green eye** – standard TF arrows  
+- **purple box** – Wheatley from Portal 2
 
-Video recording:
-- H.264 or VP9 codec support
-- Configurable frame rate (15, 24, 30, 60 fps)
-- Bitrate control
-- Automatic segmentation for large recordings
+#### Useful Settings
 
-PNG sequence recording:
-- JPEG or PNG format export
-- Quality control for JPEG
-- Frame-by-frame capture
-- ZIP archive download
+Most settings are self-explanatory, but here are a few that matter:
 
-### ROS Integration
+```
+- Decay time – how long points remain visible (oldest are removed after this time)
+- Max points – removes oldest points once the limit is reached
+- Point filter number – percentage of points added on every incoming cloud message
 
-- Foxglove WebSocket ROS communication
-- Point cloud topic subscription
-- TF topic subscription
-- Camera image feed
-- System statistics monitoring
+- Latest scan point size – enlarge points of latest scan for visibility
+- Latest scan highlight mode – visually make the latest scan brighter (and red)
+- Dynamic latest point scaling – scales distant latest points for better visibility
 
-### Node Management
+- TF smoothing – smooths jittery TF visualization
+- Camera smoothing – smooths camera movement when locked to TF, because it is tied to tf
+```
+## Recorder  
+*(This is the screen recorder, not the rosbag recorder.)*
 
-- View running ROS nodes
-- Start and stop nodes via service calls
-- Launch predefined node configurations
-- Exclude nodes from management interface
+You can record first person view videos, for example, if in TF-locked camera mode.  
 
-### Rosbag Recording
+Supported formats:
 
-- Start/stop rosbag recording via service calls
-- Monitor recording status
-- View and delete existing recordings
-- Configurable topic list for recording
+- H.264 / VP9 video with preset FPS and bitrate  
+- Raw PNG sequence dumps — enormous files, absolutely not recommended on mobile (one PNG ≈ 3 MB) and you have to stitch them with ffmpeg. Check console for the command after it dumps zips to your PC/mobile. 
 
-### Settings
+## Rosbag Recorder  
+*(Requires ros-supervisor)*
 
-- Connection configuration (WebSocket URL)
-- Point cloud settings (decay time, point size, max points)
-- Camera settings (FOV, follow frame, smoothing)
-- TF settings (arrow size, smoothing, follow configuration)
-- Recording settings (mode, codec, bitrate, FPS)
-- Node management configuration
-- Rosbag recording configuration
+Set the list of topics to record.  
+Check [ros-supervisor](https://github.com/err4o4/ros-supervisor) docs to see where bags are stored.
 
-All settings persist in browser local storage.
+## Nodes Manager  
+*(Requires ros-supervisor)*
 
-## Configuration
-
-Application configuration is stored in `config/app-config.json`:
-
-- Connection URL
-- Default topic names
-- Point cloud parameters
-- TF frame settings
-- Node launch configurations
-- Recording parameters
+Configure a list of nodes you want to control via the UI:
+```
+- Node name  
+- Launch file  
+- Parameters  
+```
+You can also define **hidden nodes**, which will run silently without appearing in the node list in UI.
 
 ## Build
-
 Development:
 ```
 npm install
 npm run dev
 ```
-
 Production:
 ```
 npm run build
 npm start
 ```
-
-Docker:
-```
-docker build -t ros-view:latest .
-docker run -p 3000:3000 ros-view:latest
-```
-
-## Requirements
-
-- Node.js 20+
-- ROS system with Foxglove WebSocket bridge
-- Modern browser with WebGL support
-- For video recording: Browser with WebCodecs API support
