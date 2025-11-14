@@ -2,7 +2,7 @@
 
 This is yet another web based ROS visualization tool — yes, similar to Foxglove but made for one specific purpose - showing pointclouds for handheld SLAM scanners on a phone. It should work nicely with FAST-LIO/LIVO or any similar SLAM framework.
 
-![preview](.assets/cover.png)
+![preview](./assets/cover.png)
 
 Its main features are:
 ```
